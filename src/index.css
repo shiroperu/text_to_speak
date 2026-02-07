@@ -1,0 +1,48 @@
+/* src/index.css
+ * Tailwind CSS directives + custom styles for VoiceCast Studio.
+ * Scrollbar and select option styling require raw CSS (not available as Tailwind utilities).
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-700 rounded;
+}
+
+/* Select dropdown option styling (browser-dependent) */
+select option {
+  @apply bg-slate-800 text-slate-100;
+}
+
+/* Placeholder styling */
+input::placeholder,
+textarea::placeholder {
+  @apply text-slate-600;
+}
+
+/* App background gradient (cannot be expressed with standard Tailwind) */
+@layer utilities {
+  .bg-app-gradient {
+    background: linear-gradient(160deg, #0a0f1a 0%, theme("colors.slate.900") 40%, theme("colors.gray.900") 100%);
+  }
+}
+
+/* Primary button gradient */
+@layer components {
+  .btn-primary {
+    @apply bg-gradient-to-br from-amber-500 to-amber-600 text-slate-900 font-semibold border-none rounded-lg cursor-pointer font-sans;
+  }
+  .btn-primary:disabled {
+    @apply bg-slate-700 cursor-not-allowed;
+    background-image: none;
+  }
+}
