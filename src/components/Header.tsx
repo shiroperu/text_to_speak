@@ -33,7 +33,7 @@ export function Header({
           <IconWave />
         </div>
         <h1 className="m-0 text-lg font-bold bg-gradient-to-br from-amber-500 to-amber-400 bg-clip-text text-transparent">
-          VoiceCast Studio
+          みんなのマンション　会話音声生成ツール
         </h1>
         <span className="text-[10px] text-slate-600 px-2 py-0.5 border border-slate-700 rounded">
           Gemini TTS
