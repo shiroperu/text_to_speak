@@ -3,12 +3,14 @@
 // Manages top-level application state and composes the layout
 // from Header, Sidebar, ScriptPanel, and GenerationControls.
 // Heavy logic is delegated to custom hooks (generation, playback, preview).
+// State (API key, characters, dictionary) is persisted to localStorage.
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { ChangeEvent } from "react";
 import type { Character, DictionaryEntry, ScriptLine, SpeakerMap } from "@/types";
 import { DEFAULT_CHARACTER } from "@/config";
 import { parseScriptFile, exportCharacters, importCharacters } from "@/utils/file";
+import { loadString, saveString, loadJson, saveJson } from "@/utils/storage";
 import { useAudioGeneration } from "@/hooks/useAudioGeneration";
 import { useAudioPlayback } from "@/hooks/useAudioPlayback";
 import { useVoicePreview } from "@/hooks/useVoicePreview";
@@ -20,12 +22,17 @@ import { CharacterEditor } from "@/components/CharacterEditor";
 import { DictionaryManager } from "@/components/DictionaryManager";
 
 export default function App() {
-  // --- Core state ---
-  const [apiKey, setApiKey] = useState("");
-  const [characters, setCharacters] = useState<Character[]>([]);
+  // --- Core state (initialized from localStorage) ---
+  const [apiKey, setApiKey] = useState(() => loadString("apiKey"));
+  const [characters, setCharacters] = useState<Character[]>(() => loadJson("characters", []));
   const [editingChar, setEditingChar] = useState<Character | null>(null);
-  const [dictionary, setDictionary] = useState<DictionaryEntry[]>([]);
+  const [dictionary, setDictionary] = useState<DictionaryEntry[]>(() => loadJson("dictionary", []));
   const [showDict, setShowDict] = useState(false);
+
+  // --- Auto-save to localStorage on state changes ---
+  useEffect(() => { saveString("apiKey", apiKey); }, [apiKey]);
+  useEffect(() => { saveJson("characters", characters); }, [characters]);
+  useEffect(() => { saveJson("dictionary", dictionary); }, [dictionary]);
   const [scriptLines, setScriptLines] = useState<ScriptLine[]>([]);
   const [speakerMap, setSpeakerMap] = useState<SpeakerMap>({});
   const [detectedSpeakers, setDetectedSpeakers] = useState<string[]>([]);
