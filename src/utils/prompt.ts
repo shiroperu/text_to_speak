@@ -1,9 +1,9 @@
 // src/utils/prompt.ts
 // Prompt construction for Gemini TTS API.
-// Converts character parameters + dictionary into structured prompt text.
-// Two modes: single-speaker (per-line) and multi-speaker (paired lines).
+// Converts character parameters + dictionary into a structured prompt text.
+// Single-speaker mode only — ensures consistent voice per character.
 
-import type { Character, DictionaryEntry, ScriptLine } from "@/types";
+import type { Character, DictionaryEntry } from "@/types";
 import type { Pitch, Speed, EmotionIntensity, VoiceQuality, Age, Personality } from "@/types";
 
 // --- Parameter-to-description maps ---
@@ -103,47 +103,3 @@ export function buildPromptForCharacter(
   return prompt;
 }
 
-/**
- * Build a multi-speaker prompt for 2 consecutive script lines.
- * Used when Gemini's multi-speaker API (max 2 speakers) can be leveraged.
- */
-export function buildMultiSpeakerPrompt(
-  lines: ScriptLine[],
-  characters: Record<string, Character>,
-  dictionary: DictionaryEntry[],
-): string {
-  let prompt = "";
-
-  // Add voice profiles for each unique speaker
-  const addedSpeakers = new Set<string>();
-  for (const line of lines) {
-    const char = characters[line.speaker];
-    if (char && !addedSpeakers.has(line.speaker)) {
-      addedSpeakers.add(line.speaker);
-      prompt += `## ${line.speaker}'s voice: ${PITCH_MAP[char.pitch]}, ${SPEED_MAP[char.speed]}, ${QUALITY_MAP[char.voiceQuality]}\n`;
-      if (char.directorsNotes) {
-        prompt += `Director's notes for ${line.speaker}: ${char.directorsNotes}\n`;
-      }
-    }
-  }
-
-  // Pronunciation guide
-  if (dictionary.length > 0) {
-    prompt += `\n## PRONUNCIATION GUIDE\n`;
-    for (const entry of dictionary) {
-      prompt += `- ${entry.word} = "${entry.reading}"\n`;
-    }
-  }
-
-  // Build conversation text
-  const speakerNames = [...new Set(lines.map((l) => l.speaker))];
-  prompt += `\nTTS the following conversation between ${speakerNames.join(" and ")}:\n`;
-  for (const line of lines) {
-    const text = dictionary.length > 0
-      ? applyDictionary(line.text, dictionary)
-      : line.text;
-    prompt += `${line.speaker}: ${text}\n`;
-  }
-
-  return prompt;
-}

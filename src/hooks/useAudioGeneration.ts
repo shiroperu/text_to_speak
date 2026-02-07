@@ -1,13 +1,13 @@
 // src/hooks/useAudioGeneration.ts
 // Custom hook for the main audio generation pipeline.
-// Handles: generation plan building (single/multi-speaker grouping),
-// API calls with retry + rate limiting, PCM concatenation, and WAV output.
-// This is the most complex hook — extracted from the monolithic App component.
+// Always uses single-speaker API for voice consistency —
+// each character goes through the identical code path every time,
+// ensuring the same voice across all lines and scripts.
 
 import { useState, useRef, useCallback } from "react";
-import type { Character, DictionaryEntry, ScriptLine, SpeakerMap, GenerationProgress, GenerationStep } from "@/types";
+import type { Character, DictionaryEntry, ScriptLine, SpeakerMap, GenerationProgress } from "@/types";
 import { GEMINI_API_BASE, GEMINI_TTS_MODEL, DEFAULT_PAUSE_MS, DEFAULT_REQUEST_DELAY_SEC, MAX_RETRIES } from "@/config";
-import { buildPromptForCharacter, buildMultiSpeakerPrompt } from "@/utils/prompt";
+import { buildPromptForCharacter } from "@/utils/prompt";
 import { base64ToArrayBuffer, createSilence, pcmToWav } from "@/utils/audio";
 
 export interface UseAudioGenerationReturn {
@@ -30,35 +30,11 @@ function apiUrl(apiKey: string): string {
 }
 
 /**
- * Build a generation plan that groups consecutive lines for multi-speaker optimization.
- * Two consecutive lines with different speakers are grouped as "multi" (uses 2-speaker API).
- * All other lines are "single" (one speaker per request).
+ * Make a single-speaker TTS API call with retry logic.
+ * Always uses the same voiceConfig for a given character,
+ * so the voice stays consistent across all lines.
  */
-function buildPlan(lines: ScriptLine[], charLookup: Record<string, Character>): GenerationStep[] {
-  const plan: GenerationStep[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const current = lines[i]!;
-    const next = lines[i + 1];
-    // Group consecutive pairs with different speakers for multi-speaker API
-    if (
-      next &&
-      current.speaker !== next.speaker &&
-      charLookup[current.speaker] &&
-      charLookup[next.speaker]
-    ) {
-      plan.push({ type: "multi", lines: [current, next] });
-      i += 2;
-    } else {
-      plan.push({ type: "single", lines: [current] });
-      i += 1;
-    }
-  }
-  return plan;
-}
-
-/** Make a single-speaker TTS API call with retry logic */
-async function callSingleSpeakerApi(
+async function callTtsApi(
   apiKey: string,
   char: Character,
   prompt: string,
@@ -72,7 +48,9 @@ async function callSingleSpeakerApi(
         generationConfig: {
           responseModalities: ["AUDIO"],
           speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: char.voiceName } },
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: char.voiceName },
+            },
           },
         },
       }),
@@ -96,84 +74,10 @@ async function callSingleSpeakerApi(
   return null;
 }
 
-/** Make a multi-speaker TTS API call with retry + fallback to single */
-async function callMultiSpeakerApi(
-  apiKey: string,
-  lines: ScriptLine[],
-  charLookup: Record<string, Character>,
-  dictionary: DictionaryEntry[],
-  pauseMs: number,
-  requestDelay: number,
-  abortRef: React.RefObject<boolean>,
-): Promise<Int16Array[]> {
-  const [line1, line2] = lines as [ScriptLine, ScriptLine];
-  const char1 = charLookup[line1.speaker]!;
-  const char2 = charLookup[line2.speaker]!;
-  const prompt = buildMultiSpeakerPrompt(
-    lines,
-    { [line1.speaker]: char1, [line2.speaker]: char2 },
-    dictionary,
-  );
-
-  for (let retry = 0; retry < MAX_RETRIES; retry++) {
-    try {
-      const res = await fetch(apiUrl(apiKey), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              multiSpeakerVoiceConfig: {
-                speakerVoiceConfigs: [
-                  { speaker: line1.speaker, voiceConfig: { prebuiltVoiceConfig: { voiceName: char1.voiceName } } },
-                  { speaker: line2.speaker, voiceConfig: { prebuiltVoiceConfig: { voiceName: char2.voiceName } } },
-                ],
-              },
-            },
-          },
-        }),
-      });
-      const data = await res.json();
-
-      if (data.error) {
-        if (res.status === 429) {
-          await new Promise((r) => setTimeout(r, Math.pow(2, retry + 1) * 2000));
-          continue;
-        }
-        throw new Error(data.error.message);
-      }
-
-      const audioData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (!audioData) throw new Error("No audio data");
-      return [new Int16Array(base64ToArrayBuffer(audioData))];
-    } catch (err) {
-      // On final retry failure, fall back to individual single-speaker calls
-      if (retry === MAX_RETRIES - 1) {
-        console.warn("Multi-speaker failed, falling back to single:", (err as Error).message);
-        const chunks: Int16Array[] = [];
-        for (let li = 0; li < lines.length; li++) {
-          if (abortRef.current) break;
-          const line = lines[li]!;
-          const char = charLookup[line.speaker]!;
-          const singlePrompt = buildPromptForCharacter(char, line.text, dictionary);
-          const result = await callSingleSpeakerApi(apiKey, char, singlePrompt);
-          if (result) chunks.push(result);
-          // Insert silence between fallback lines (not after last)
-          if (li < lines.length - 1) chunks.push(createSilence(pauseMs));
-          await new Promise((r) => setTimeout(r, requestDelay * 1000));
-        }
-        return chunks;
-      }
-    }
-  }
-  return [];
-}
-
 /**
  * Main audio generation hook.
- * Orchestrates the entire generation pipeline from script lines to WAV output.
+ * Processes each script line individually with single-speaker TTS,
+ * ensuring consistent voice per character regardless of line position or script.
  */
 export function useAudioGeneration(
   apiKey: string,
@@ -217,44 +121,32 @@ export function useAudioGeneration(
       if (char) charLookup[sp] = char;
     }
 
-    const plan = buildPlan(scriptLines, charLookup);
     setGenProgress({ current: 0, total: scriptLines.length, currentSpeaker: "" });
     const allPcmChunks: Int16Array[] = [];
-    let processedLines = 0;
 
     try {
-      for (let pi = 0; pi < plan.length; pi++) {
+      // Process each line individually (single-speaker) for voice consistency
+      for (let i = 0; i < scriptLines.length; i++) {
         if (abortRef.current) break;
-        const step = plan[pi]!;
 
-        if (step.type === "multi") {
-          const [line1, line2] = step.lines as [ScriptLine, ScriptLine];
-          setGenProgress({ current: processedLines, total: scriptLines.length, currentSpeaker: `${line1.speaker} & ${line2.speaker} (Multi)` });
+        const line = scriptLines[i]!;
+        const char = charLookup[line.speaker]!;
+        setGenProgress({ current: i, total: scriptLines.length, currentSpeaker: line.speaker });
 
-          const chunks = await callMultiSpeakerApi(apiKey, step.lines, charLookup, dictionary, pauseMs, requestDelay, abortRef);
-          allPcmChunks.push(...chunks);
-          processedLines += 2;
-        } else {
-          const line = step.lines[0]!;
-          const char = charLookup[line.speaker]!;
-          setGenProgress({ current: processedLines, total: scriptLines.length, currentSpeaker: line.speaker });
-
-          const prompt = buildPromptForCharacter(char, line.text, dictionary);
-          try {
-            const result = await callSingleSpeakerApi(apiKey, char, prompt);
-            if (result) allPcmChunks.push(result);
-          } catch (err) {
-            setGenError(`行${line.index + 1}でエラー: ${(err as Error).message}`);
-          }
-          processedLines += 1;
+        const prompt = buildPromptForCharacter(char, line.text, dictionary);
+        try {
+          const result = await callTtsApi(apiKey, char, prompt);
+          if (result) allPcmChunks.push(result);
+        } catch (err) {
+          setGenError(`行${line.index + 1}でエラー: ${(err as Error).message}`);
         }
 
-        // Insert silence between steps (not after the last one)
-        if (pi < plan.length - 1 && !abortRef.current) {
+        // Insert silence between lines (not after the last one)
+        if (i < scriptLines.length - 1 && !abortRef.current) {
           allPcmChunks.push(createSilence(pauseMs));
         }
         // Rate limit delay between requests
-        if (pi < plan.length - 1 && !abortRef.current) {
+        if (i < scriptLines.length - 1 && !abortRef.current) {
           await new Promise((r) => setTimeout(r, requestDelay * 1000));
         }
       }

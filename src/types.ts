@@ -63,12 +63,6 @@ export interface GenerationProgress {
   currentSpeaker: string;
 }
 
-/** Generation plan step — single or multi-speaker */
-export interface GenerationStep {
-  type: "single" | "multi";
-  lines: ScriptLine[];
-}
-
 /** Character export/import JSON format */
 export interface CharacterExport {
   version: string;
