@@ -2,8 +2,9 @@
 // Root component for VoiceCast Studio.
 // Manages top-level application state and composes the layout
 // from Header, Sidebar, ScriptPanel, and GenerationControls.
-// Heavy logic is delegated to custom hooks (generation, playback, preview).
-// State (API key, characters, dictionary) is persisted to localStorage.
+// Heavy logic is delegated to custom hooks (generation, playback, preview, auth, sync).
+// State (API key, characters, dictionary) is persisted to localStorage
+// and optionally synced to Firestore when logged in via Google.
 
 import { useState, useCallback, useEffect } from "react";
 import type { ChangeEvent } from "react";
@@ -14,6 +15,8 @@ import { loadString, saveString, loadJson, saveJson } from "@/utils/storage";
 import { useAudioGeneration } from "@/hooks/useAudioGeneration";
 import { useAudioPlayback } from "@/hooks/useAudioPlayback";
 import { useVoicePreview } from "@/hooks/useVoicePreview";
+import { useAuth } from "@/hooks/useAuth";
+import { useFirestoreSync } from "@/hooks/useFirestoreSync";
 import { Header } from "@/components/Header";
 import { Sidebar } from "@/components/Sidebar";
 import { ScriptPanel } from "@/components/ScriptPanel";
@@ -33,9 +36,17 @@ export default function App() {
   useEffect(() => { saveString("apiKey", apiKey); }, [apiKey]);
   useEffect(() => { saveJson("characters", characters); }, [characters]);
   useEffect(() => { saveJson("dictionary", dictionary); }, [dictionary]);
+
   const [scriptLines, setScriptLines] = useState<ScriptLine[]>([]);
   const [speakerMap, setSpeakerMap] = useState<SpeakerMap>({});
   const [detectedSpeakers, setDetectedSpeakers] = useState<string[]>([]);
+
+  // --- Auth + Firestore sync ---
+  const { user, isLoading: isAuthLoading, signIn, signOut } = useAuth();
+  const { isSynced } = useFirestoreSync({
+    user, apiKey, characters, dictionary,
+    setApiKey, setCharacters, setDictionary,
+  });
 
   // --- Custom hooks ---
   const generation = useAudioGeneration(apiKey, characters, dictionary, scriptLines, speakerMap, detectedSpeakers);
@@ -95,7 +106,15 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-app-gradient text-slate-200 font-sans">
-      <Header apiKey={apiKey} onApiKeyChange={setApiKey} />
+      <Header
+        apiKey={apiKey}
+        onApiKeyChange={setApiKey}
+        user={user}
+        isAuthLoading={isAuthLoading}
+        isSynced={isSynced}
+        onSignIn={signIn}
+        onSignOut={signOut}
+      />
 
       <div className="flex h-[calc(100vh-53px)]">
         <Sidebar

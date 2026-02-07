@@ -103,6 +103,32 @@ export function IconX({ className = "w-3.5 h-3.5" }: IconProps) {
   );
 }
 
+export function IconCloud({ className = "w-4 h-4" }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M4,12H3a3,3,0,0,1,0-6,4,4,0,0,1,7.9-.7A3,3,0,0,1,13,8a3,3,0,0,1-1,5.8H4Z" />
+    </svg>
+  );
+}
+
+export function IconUser({ className = "w-4 h-4" }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <circle cx="8" cy="5" r="3" />
+      <path d="M2,14a6,6,0,0,1,12,0" />
+    </svg>
+  );
+}
+
+export function IconLogout({ className = "w-3.5 h-3.5" }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M5,2H3a1,1,0,0,0-1,1v8a1,1,0,0,0,1,1H5" />
+      <polyline points="8,4 12,7 8,10" /><line x1="12" y1="7" x2="5" y2="7" />
+    </svg>
+  );
+}
+
 export function IconWave({ className = "w-5 h-5" }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">

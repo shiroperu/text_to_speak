@@ -75,3 +75,10 @@ export interface DictionaryExport {
   version: string;
   entries: DictionaryEntry[];
 }
+
+/** User data stored in Firestore (one document per user) */
+export interface UserData {
+  apiKey: string;
+  characters: Character[];
+  dictionary: DictionaryEntry[];
+}
