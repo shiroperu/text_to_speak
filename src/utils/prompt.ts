@@ -7,44 +7,44 @@ import type { Character, DictionaryEntry } from "@/types";
 import type { Pitch, Speed, EmotionIntensity, VoiceQuality, Age, Personality } from "@/types";
 
 // --- Parameter-to-description maps ---
-// These maps convert UI enum values to natural language descriptions for the TTS prompt.
+// UIの列挙値を日本語の自然言語記述に変換する。
 
 const PITCH_MAP: Record<Pitch, string> = {
-  low: "low-pitched, deep voice",
-  mid: "mid-range pitch",
-  high: "high-pitched voice",
+  low: "低い声、落ち着いたトーン",
+  mid: "中程度の高さ",
+  high: "高い声",
 };
 
 const SPEED_MAP: Record<Speed, string> = {
-  slow: "slow, deliberate pace",
-  normal: "natural conversational pace",
-  fast: "quick, energetic pace",
+  slow: "ゆっくり、丁寧なペース",
+  normal: "自然な会話ペース",
+  fast: "テンポが速く、エネルギッシュ",
 };
 
 const EMOTION_MAP: Record<EmotionIntensity, string> = {
-  small: "restrained emotion, subtle expressiveness",
-  medium: "moderate expressiveness",
-  large: "highly expressive, dramatic emotion",
+  small: "感情を抑えた、控えめな表現",
+  medium: "適度な感情表現",
+  large: "感情豊かで、ドラマチックな表現",
 };
 
 const QUALITY_MAP: Record<VoiceQuality, string> = {
-  clear: "clear, crisp articulation",
-  breathy: "breathy, airy voice quality",
-  nasal: "slightly nasal resonance",
-  husky: "husky, raspy voice quality",
+  clear: "クリアで明瞭な発声",
+  breathy: "息まじりの柔らかい声質",
+  nasal: "やや鼻にかかった声",
+  husky: "ハスキーで低めの声質",
 };
 
 const AGE_MAP: Record<Age, string> = {
-  child: "child-like voice",
-  teen: "teenage voice quality",
-  adult: "adult voice",
+  child: "子供のような声",
+  teen: "10代の若い声",
+  adult: "大人の声",
 };
 
 const PERSONALITY_MAP: Record<Personality, string> = {
-  calm: "calm, composed demeanor",
-  cheerful: "cheerful, bright personality",
-  shy: "shy, hesitant delivery",
-  aggressive: "assertive, forceful delivery",
+  calm: "穏やかで落ち着いた話し方",
+  cheerful: "明るく元気な話し方",
+  shy: "控えめで遠慮がちな話し方",
+  aggressive: "力強く断定的な話し方",
 };
 
 /**
@@ -74,32 +74,36 @@ export function buildPromptForCharacter(
     ? applyDictionary(lineText, dictionary)
     : lineText;
 
-  let prompt = `## AUDIO PROFILE: ${char.name}\n\n`;
-  prompt += `### VOICE CHARACTERISTICS\n`;
-  prompt += `- Pitch: ${PITCH_MAP[char.pitch]}\n`;
-  prompt += `- Speed: ${SPEED_MAP[char.speed]}\n`;
-  prompt += `- Emotion intensity: ${EMOTION_MAP[char.emotionIntensity]}\n`;
-  prompt += `- Voice quality: ${QUALITY_MAP[char.voiceQuality]}\n`;
-  prompt += `- Age impression: ${AGE_MAP[char.age]}\n`;
-  prompt += `- Personality: ${PERSONALITY_MAP[char.personality]}\n`;
+  let prompt = `## 音声プロファイル: ${char.name}\n\n`;
+  prompt += `### 声の特徴\n`;
+  prompt += `- 声の高さ: ${PITCH_MAP[char.pitch]}\n`;
+  prompt += `- 話速: ${SPEED_MAP[char.speed]}\n`;
+  prompt += `- 感情量: ${EMOTION_MAP[char.emotionIntensity]}\n`;
+  prompt += `- 声質: ${QUALITY_MAP[char.voiceQuality]}\n`;
+  prompt += `- 年齢感: ${AGE_MAP[char.age]}\n`;
+  prompt += `- 性格: ${PERSONALITY_MAP[char.personality]}\n`;
 
   // Director's notes (free-form user input)
   if (char.directorsNotes?.trim()) {
-    prompt += `\n### DIRECTOR'S NOTES\n${char.directorsNotes}\n`;
+    prompt += `\n### 演出指示\n${char.directorsNotes}\n`;
   }
 
   // Pronunciation guide — only include entries relevant to this line
   if (dictionary.length > 0) {
     const relevant = dictionary.filter((entry) => lineText.includes(entry.word));
     if (relevant.length > 0) {
-      prompt += `\n### PRONUNCIATION GUIDE\n`;
+      prompt += `\n### 読み方ガイド\n`;
       for (const entry of relevant) {
-        prompt += `- ${entry.word} should be read as "${entry.reading}"\n`;
+        prompt += `- 「${entry.word}」は「${entry.reading}」と読むこと\n`;
       }
     }
   }
 
-  prompt += `\nRead the following line naturally, in character:\n「${processedText}」`;
+  prompt += `\n### 一貫性ルール\n`;
+  prompt += `- このキャラクターの声、トーン、話し方を常に同一に保つこと。\n`;
+  prompt += `- セリフの内容に関わらず、声の高さ・声質・アクセントを変えないこと。\n`;
+  prompt += `- 同一人物が話しているように聞こえること。\n`;
+
+  prompt += `\n以下のセリフをこのキャラクターとして自然に読み上げてください:\n「${processedText}」`;
   return prompt;
 }
-
