@@ -1,6 +1,7 @@
 // src/components/RadioGroup.tsx
 // Reusable radio button group component.
 // Displays a row of selectable options with visual active state.
+// Supports optional labels map for displaying localized text.
 // Used in CharacterEditor for pitch, speed, emotion, etc.
 
 interface RadioGroupProps<T extends string> {
@@ -12,6 +13,8 @@ interface RadioGroupProps<T extends string> {
   value: T;
   /** Callback when an option is selected */
   onChange: (value: T) => void;
+  /** Optional display labels for each option (if omitted, raw value is shown) */
+  labels?: Partial<Record<T, string>>;
 }
 
 export function RadioGroup<T extends string>({
@@ -19,6 +22,7 @@ export function RadioGroup<T extends string>({
   options,
   value,
   onChange,
+  labels,
 }: RadioGroupProps<T>) {
   return (
     <div className="mb-3">
@@ -37,7 +41,7 @@ export function RadioGroup<T extends string>({
                 : "border-slate-700 bg-transparent text-slate-400 hover:border-slate-500"
               }`}
           >
-            {opt}
+            {labels?.[opt] ?? opt}
           </button>
         ))}
       </div>

@@ -19,6 +19,14 @@ import { generateId } from "@/utils/id";
 import { RadioGroup } from "./RadioGroup";
 import { IconX, IconPlay } from "./icons";
 
+// --- 日本語表示ラベル ---
+const PITCH_LABELS = { low: "低い", mid: "中", high: "高い" } as const;
+const SPEED_LABELS = { slow: "ゆっくり", normal: "普通", fast: "速い" } as const;
+const EMOTION_LABELS = { small: "控えめ", medium: "普通", large: "豊か" } as const;
+const QUALITY_LABELS = { clear: "クリア", breathy: "息まじり", nasal: "鼻声", husky: "ハスキー" } as const;
+const AGE_LABELS = { child: "子供", teen: "10代", adult: "大人" } as const;
+const PERSONALITY_LABELS = { calm: "穏やか", cheerful: "明るい", shy: "控えめ", aggressive: "力強い" } as const;
+
 interface CharacterEditorProps {
   character: Character;
   onSave: (char: Character) => void;
@@ -95,12 +103,12 @@ export function CharacterEditor({
 
           {/* Voice parameter radio groups (2 columns) */}
           <div className="grid grid-cols-2 gap-x-6">
-            <RadioGroup label="声の高さ (Pitch)" options={PITCH_OPTIONS} value={form.pitch} onChange={(v) => update("pitch", v)} />
-            <RadioGroup label="話速 (Speed)" options={SPEED_OPTIONS} value={form.speed} onChange={(v) => update("speed", v)} />
-            <RadioGroup label="感情量 (Emotion)" options={EMOTION_OPTIONS} value={form.emotionIntensity} onChange={(v) => update("emotionIntensity", v)} />
-            <RadioGroup label="声質 (Quality)" options={QUALITY_OPTIONS} value={form.voiceQuality} onChange={(v) => update("voiceQuality", v)} />
-            <RadioGroup label="年齢 (Age)" options={AGE_OPTIONS} value={form.age} onChange={(v) => update("age", v)} />
-            <RadioGroup label="性格 (Personality)" options={PERSONALITY_OPTIONS} value={form.personality} onChange={(v) => update("personality", v)} />
+            <RadioGroup label="声の高さ" options={PITCH_OPTIONS} value={form.pitch} onChange={(v) => update("pitch", v)} labels={PITCH_LABELS} />
+            <RadioGroup label="話速" options={SPEED_OPTIONS} value={form.speed} onChange={(v) => update("speed", v)} labels={SPEED_LABELS} />
+            <RadioGroup label="感情量" options={EMOTION_OPTIONS} value={form.emotionIntensity} onChange={(v) => update("emotionIntensity", v)} labels={EMOTION_LABELS} />
+            <RadioGroup label="声質" options={QUALITY_OPTIONS} value={form.voiceQuality} onChange={(v) => update("voiceQuality", v)} labels={QUALITY_LABELS} />
+            <RadioGroup label="年齢" options={AGE_OPTIONS} value={form.age} onChange={(v) => update("age", v)} labels={AGE_LABELS} />
+            <RadioGroup label="性格" options={PERSONALITY_OPTIONS} value={form.personality} onChange={(v) => update("personality", v)} labels={PERSONALITY_LABELS} />
           </div>
 
           {/* Director's Notes textarea */}
