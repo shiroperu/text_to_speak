@@ -39,7 +39,11 @@ async function callTtsApi(
   char: Character,
   prompt: string,
 ): Promise<Int16Array | null> {
-  for (let retry = 0; retry < MAX_RETRIES; retry++) {
+  // retry counts only for non-rate-limit errors (OTHER, server errors)
+  let errorRetries = 0;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
     const res = await fetch(apiUrl(apiKey), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -58,24 +62,31 @@ async function callTtsApi(
     });
     const data = await res.json();
 
-    // Exponential backoff delay for retries
-    const backoff = () => new Promise((r) => setTimeout(r, Math.pow(2, retry + 1) * 2000));
+    // --- 429 Rate Limit: wait long and retry (does NOT count against retry limit) ---
+    if (res.status === 429) {
+      const retryAfter = res.headers.get("retry-after");
+      const waitSec = retryAfter ? parseInt(retryAfter, 10) : 30;
+      await new Promise((r) => setTimeout(r, waitSec * 1000));
+      continue;
+    }
 
-    // Handle explicit API errors (rate limit, server errors, etc.)
+    // --- Other API errors: limited retries with backoff ---
     if (data.error) {
-      if (retry < MAX_RETRIES - 1) {
-        await backoff();
+      errorRetries++;
+      if (errorRetries < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, Math.pow(2, errorRetries) * 2000));
         continue;
       }
       throw new Error(data.error.message);
     }
 
+    // --- Success: return audio data ---
     const audioData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     if (audioData) {
       return new Int16Array(base64ToArrayBuffer(audioData));
     }
 
-    // No audio data — retry on transient issues (finishReason: OTHER, server errors)
+    // --- No audio data ---
     const reason = data.candidates?.[0]?.finishReason ?? "不明";
     const blockReason = data.promptFeedback?.blockReason;
 
@@ -84,18 +95,17 @@ async function callTtsApi(
       throw new Error(`コンテンツブロック (${blockReason ?? reason})`);
     }
 
-    // Transient errors (OTHER, internal errors) — retry with backoff
-    if (retry < MAX_RETRIES - 1) {
-      await backoff();
+    // Transient errors (OTHER, etc.): limited retries
+    errorRetries++;
+    if (errorRetries < MAX_RETRIES) {
+      await new Promise((r) => setTimeout(r, Math.pow(2, errorRetries) * 2000));
       continue;
     }
 
-    // Final retry exhausted — throw with details
     let msg = `音声データなし (finishReason: ${reason})`;
     if (res.status !== 200) msg += ` [HTTP ${res.status}]`;
     throw new Error(msg);
   }
-  return null;
 }
 
 /**
