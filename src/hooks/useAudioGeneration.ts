@@ -69,7 +69,15 @@ async function callTtsApi(
     }
 
     const audioData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!audioData) throw new Error("No audio data");
+    if (!audioData) {
+      // Include API response details for diagnosis
+      const reason = data.candidates?.[0]?.finishReason ?? "不明";
+      const blockReason = data.promptFeedback?.blockReason;
+      let msg = `音声データなし (finishReason: ${reason})`;
+      if (blockReason) msg += ` [blocked: ${blockReason}]`;
+      if (res.status !== 200) msg += ` [HTTP ${res.status}]`;
+      throw new Error(msg);
+    }
     return new Int16Array(base64ToArrayBuffer(audioData));
   }
   return null;
