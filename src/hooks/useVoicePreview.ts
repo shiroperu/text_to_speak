@@ -41,6 +41,7 @@ export function useVoicePreview(
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
               responseModalities: ["AUDIO"],
+              temperature: 0,
               speechConfig: {
                 voiceConfig: {
                   prebuiltVoiceConfig: { voiceName: charForm.voiceName },

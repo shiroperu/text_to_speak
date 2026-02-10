@@ -88,14 +88,12 @@ export function buildPromptForCharacter(
     prompt += `\n### 演出指示\n${char.directorsNotes}\n`;
   }
 
-  // Pronunciation guide — only include entries relevant to this line
+  // Pronunciation guide — always include ALL entries to keep prompt structure
+  // identical across lines (reduces voice variation from prompt differences)
   if (dictionary.length > 0) {
-    const relevant = dictionary.filter((entry) => lineText.includes(entry.word));
-    if (relevant.length > 0) {
-      prompt += `\n### 読み方ガイド\n`;
-      for (const entry of relevant) {
-        prompt += `- 「${entry.word}」は「${entry.reading}」と読むこと\n`;
-      }
+    prompt += `\n### 読み方ガイド\n`;
+    for (const entry of dictionary) {
+      prompt += `- 「${entry.word}」は「${entry.reading}」と読むこと\n`;
     }
   }
 
