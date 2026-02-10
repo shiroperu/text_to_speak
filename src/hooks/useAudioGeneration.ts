@@ -58,27 +58,42 @@ async function callTtsApi(
     });
     const data = await res.json();
 
+    // Exponential backoff delay for retries
+    const backoff = () => new Promise((r) => setTimeout(r, Math.pow(2, retry + 1) * 2000));
+
+    // Handle explicit API errors (rate limit, server errors, etc.)
     if (data.error) {
-      // Rate limit: exponential backoff
-      if (res.status === 429) {
-        await new Promise((r) => setTimeout(r, Math.pow(2, retry + 1) * 2000));
+      if (retry < MAX_RETRIES - 1) {
+        await backoff();
         continue;
       }
-      if (retry === MAX_RETRIES - 1) throw new Error(data.error.message);
-      continue;
+      throw new Error(data.error.message);
     }
 
     const audioData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!audioData) {
-      // Include API response details for diagnosis
-      const reason = data.candidates?.[0]?.finishReason ?? "不明";
-      const blockReason = data.promptFeedback?.blockReason;
-      let msg = `音声データなし (finishReason: ${reason})`;
-      if (blockReason) msg += ` [blocked: ${blockReason}]`;
-      if (res.status !== 200) msg += ` [HTTP ${res.status}]`;
-      throw new Error(msg);
+    if (audioData) {
+      return new Int16Array(base64ToArrayBuffer(audioData));
     }
-    return new Int16Array(base64ToArrayBuffer(audioData));
+
+    // No audio data — retry on transient issues (finishReason: OTHER, server errors)
+    const reason = data.candidates?.[0]?.finishReason ?? "不明";
+    const blockReason = data.promptFeedback?.blockReason;
+
+    // SAFETY block is not retryable
+    if (reason === "SAFETY" || blockReason) {
+      throw new Error(`コンテンツブロック (${blockReason ?? reason})`);
+    }
+
+    // Transient errors (OTHER, internal errors) — retry with backoff
+    if (retry < MAX_RETRIES - 1) {
+      await backoff();
+      continue;
+    }
+
+    // Final retry exhausted — throw with details
+    let msg = `音声データなし (finishReason: ${reason})`;
+    if (res.status !== 200) msg += ` [HTTP ${res.status}]`;
+    throw new Error(msg);
   }
   return null;
 }
