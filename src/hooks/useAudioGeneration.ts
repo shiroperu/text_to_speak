@@ -147,24 +147,25 @@ export function useAudioGeneration(
 
     setGenProgress({ current: 0, total: scriptLines.length, currentSpeaker: "" });
 
-    // Store generated PCM data indexed by original line position
-    const pcmByIndex: (Int16Array | null)[] = new Array(scriptLines.length).fill(null);
+    // Results stored with original line index for correct reassembly order
+    type GeneratedLine = { originalIdx: number; pcm: Int16Array };
+    const results: GeneratedLine[] = [];
     let completedCount = 0;
 
     try {
       // Group lines by character for consecutive generation (improves voice consistency)
-      const charGroups = new Map<string, { lineIdx: number; line: ScriptLine; char: Character }[]>();
+      const charGroups = new Map<string, { originalIdx: number; line: ScriptLine; char: Character }[]>();
       for (let i = 0; i < scriptLines.length; i++) {
         const line = scriptLines[i]!;
         const char = charLookup[line.speaker]!;
         const charId = char.id;
         if (!charGroups.has(charId)) charGroups.set(charId, []);
-        charGroups.get(charId)!.push({ lineIdx: i, line, char });
+        charGroups.get(charId)!.push({ originalIdx: i, line, char });
       }
 
       // Generate all lines for each character consecutively
       for (const [, group] of charGroups) {
-        for (const { lineIdx, line, char } of group) {
+        for (const { originalIdx, line, char } of group) {
           if (abortRef.current) break;
 
           completedCount++;
@@ -173,7 +174,7 @@ export function useAudioGeneration(
           const prompt = buildPromptForCharacter(char, line.text, dictionary);
           try {
             const result = await callTtsApi(apiKey, char, prompt);
-            pcmByIndex[lineIdx] = result;
+            if (result) results.push({ originalIdx, pcm: result });
           } catch (err) {
             setGenError(`行${line.index + 1}でエラー: ${(err as Error).message}`);
           }
@@ -186,34 +187,33 @@ export function useAudioGeneration(
         if (abortRef.current) break;
       }
 
-      // Reassemble in original line order with silence between lines
-      if (!abortRef.current) {
+      // Sort results back to original script order and combine
+      if (!abortRef.current && results.length > 0) {
+        results.sort((a, b) => a.originalIdx - b.originalIdx);
+
         const allPcmChunks: Int16Array[] = [];
-        for (let i = 0; i < pcmByIndex.length; i++) {
-          const pcm = pcmByIndex[i];
-          if (pcm) allPcmChunks.push(pcm);
+        for (let i = 0; i < results.length; i++) {
+          allPcmChunks.push(results[i]!.pcm);
           // Insert silence between lines (not after the last one)
-          if (i < pcmByIndex.length - 1) {
+          if (i < results.length - 1) {
             allPcmChunks.push(createSilence(pauseMs));
           }
         }
 
-        if (allPcmChunks.length > 0) {
-          const totalLength = allPcmChunks.reduce((sum, chunk) => sum + chunk.length, 0);
-          const combined = new Int16Array(totalLength);
-          let offset = 0;
-          for (const chunk of allPcmChunks) {
-            combined.set(chunk, offset);
-            offset += chunk.length;
-          }
-          const wav = pcmToWav(combined.buffer);
-          // Clean up previous URL
-          if (audioUrl) URL.revokeObjectURL(audioUrl);
-          const url = URL.createObjectURL(wav);
-          setAudioBlob(wav);
-          setAudioUrl(url);
-          setGenProgress({ current: scriptLines.length, total: scriptLines.length, currentSpeaker: "完了" });
+        const totalLength = allPcmChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+        const combined = new Int16Array(totalLength);
+        let offset = 0;
+        for (const chunk of allPcmChunks) {
+          combined.set(chunk, offset);
+          offset += chunk.length;
         }
+        const wav = pcmToWav(combined.buffer);
+        // Clean up previous URL
+        if (audioUrl) URL.revokeObjectURL(audioUrl);
+        const url = URL.createObjectURL(wav);
+        setAudioBlob(wav);
+        setAudioUrl(url);
+        setGenProgress({ current: scriptLines.length, total: scriptLines.length, currentSpeaker: "完了" });
       }
     } catch (err) {
       setGenError("生成エラー: " + (err instanceof Error ? err.message : String(err)));
