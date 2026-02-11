@@ -68,7 +68,7 @@ export const BITS_PER_SAMPLE = 16;
 
 // --- Generation defaults ---
 export const DEFAULT_PAUSE_MS = 500;
-export const DEFAULT_REQUEST_DELAY_SEC = 6.0;
+export const DEFAULT_REQUEST_DELAY_SEC = 3.0;
 export const MAX_RETRIES = 3;
 export const PREVIEW_TEXT = "こんにちは、テスト音声です。本日はよろしくお願いします。";
 
