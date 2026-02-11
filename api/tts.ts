@@ -84,8 +84,27 @@ export default async function handler(
     if (!authClient) {
       throw new Error("Failed to create auth client");
     }
-    // getRequestHeaders returns { Authorization: 'Bearer ...' }
-    const authHeaders = await authClient.getRequestHeaders();
+
+    // getRequestHeaders exchanges OIDC token → GCP access token via WIF
+    let authHeaders: Awaited<ReturnType<typeof authClient.getRequestHeaders>>;
+    try {
+      authHeaders = await authClient.getRequestHeaders();
+    } catch (authErr) {
+      // Log WIF auth chain failure details for debugging
+      console.error("WIF auth failed:", {
+        error: (authErr as Error).message,
+        pool: GCP_WORKLOAD_IDENTITY_POOL_ID,
+        provider: GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID,
+        sa: GCP_SERVICE_ACCOUNT_EMAIL,
+      });
+      return res.status(500).json({
+        error: {
+          message: `Authentication failed: ${(authErr as Error).message}`,
+        },
+      });
+    }
+
+    console.log("Auth succeeded, calling Vertex AI:", VERTEX_AI_URL);
 
     // Forward request body as-is to Vertex AI
     const response = await fetch(VERTEX_AI_URL, {
@@ -98,6 +117,16 @@ export default async function handler(
     });
 
     const data = await response.json();
+
+    // Log non-200 responses for debugging
+    if (!response.ok) {
+      console.error("Vertex AI error:", {
+        status: response.status,
+        url: VERTEX_AI_URL,
+        model: GCP_TTS_MODEL,
+        error: JSON.stringify(data).slice(0, 500),
+      });
+    }
 
     // Pass through the Vertex AI response (same format as AI Studio)
     return res.status(response.status).json(data);
