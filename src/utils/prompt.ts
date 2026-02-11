@@ -6,49 +6,49 @@
 // a separate section, keeping the prompt short.
 
 import type { Character, DictionaryEntry } from "@/types";
-// import type { Pitch, Speed, EmotionIntensity, VoiceQuality, Age, Personality } from "@/types";
+import type { Pitch, Speed, EmotionIntensity, VoiceQuality, Age, Personality } from "@/types";
 
 // --- Compact voice trait labels ---
 // Short Japanese descriptions joined into a single line in the prompt.
 // Currently disabled for testing — uncomment when re-enabling traits in the prompt.
 
-// const PITCH_LABEL: Record<Pitch, string> = {
-//   low: "低め",
-//   mid: "中音",
-//   high: "高め",
-// };
+const PITCH_LABEL: Record<Pitch, string> = {
+  low: "低め",
+  mid: "中音",
+  high: "高め",
+};
 
-// const SPEED_LABEL: Record<Speed, string> = {
-//   slow: "ゆっくり",
-//   normal: "普通",
-//   fast: "速め",
-// };
+const SPEED_LABEL: Record<Speed, string> = {
+  slow: "ゆっくり",
+  normal: "普通",
+  fast: "速め",
+};
 
-// const EMOTION_LABEL: Record<EmotionIntensity, string> = {
-//   small: "控えめ",
-//   medium: "普通",
-//   large: "感情豊か",
-// };
+const EMOTION_LABEL: Record<EmotionIntensity, string> = {
+  small: "控えめ",
+  medium: "普通",
+  large: "感情豊か",
+};
 
-// const QUALITY_LABEL: Record<VoiceQuality, string> = {
-//   clear: "クリア",
-//   breathy: "息まじり",
-//   nasal: "鼻声",
-//   husky: "ハスキー",
-// };
+const QUALITY_LABEL: Record<VoiceQuality, string> = {
+  clear: "クリア",
+  breathy: "息まじり",
+  nasal: "鼻声",
+  husky: "ハスキー",
+};
 
-// const AGE_LABEL: Record<Age, string> = {
-//   child: "子供",
-//   teen: "10代",
-//   adult: "大人",
-// };
+const AGE_LABEL: Record<Age, string> = {
+  child: "子供",
+  teen: "10代",
+  adult: "大人",
+};
 
-// const PERSONALITY_LABEL: Record<Personality, string> = {
-//   calm: "穏やか",
-//   cheerful: "明るい",
-//   shy: "控えめ",
-//   aggressive: "力強い",
-// };
+const PERSONALITY_LABEL: Record<Personality, string> = {
+  calm: "穏やか",
+  cheerful: "明るい",
+  shy: "控えめ",
+  aggressive: "力強い",
+};
 
 /**
  * Sanitize text for TTS: remove Unicode escape sequences (\uXXXX) and
