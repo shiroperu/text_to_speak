@@ -5,6 +5,7 @@
 import type { ScriptLine } from "@/types";
 import type { UseAudioGenerationReturn } from "@/hooks/useAudioGeneration";
 import type { UseAudioPlaybackReturn } from "@/hooks/useAudioPlayback";
+import { USE_VERTEX_AI } from "@/config";
 import { IconMic, IconStop, IconPlay, IconDownload } from "./icons";
 
 interface GenerationControlsProps {
@@ -24,7 +25,7 @@ export function GenerationControls({
 }: GenerationControlsProps) {
   const { isGenerating, genProgress, genError, pauseMs, setPauseMs, requestDelay, setRequestDelay, audioUrl, generateAudio, stopGeneration } = generation;
   const { isPlaying, playAudio, stopAudio, downloadAudio } = playback;
-  const canGenerate = scriptLines.length > 0 && !!apiKey;
+  const canGenerate = scriptLines.length > 0 && (USE_VERTEX_AI || !!apiKey);
 
   return (
     <div className="px-6 py-4 border-t border-slate-800 bg-slate-900/80 backdrop-blur-xl">
