@@ -6,48 +6,67 @@
 // a separate section, keeping the prompt short.
 
 import type { Character, DictionaryEntry } from "@/types";
-import type { Pitch, Speed, EmotionIntensity, VoiceQuality, Age, Personality } from "@/types";
+// import type { Pitch, Speed, EmotionIntensity, VoiceQuality, Age, Personality } from "@/types";
 
 // --- Compact voice trait labels ---
 // Short Japanese descriptions joined into a single line in the prompt.
+// Currently disabled for testing — uncomment when re-enabling traits in the prompt.
 
-const PITCH_LABEL: Record<Pitch, string> = {
-  low: "低め",
-  mid: "中音",
-  high: "高め",
-};
+// const PITCH_LABEL: Record<Pitch, string> = {
+//   low: "低め",
+//   mid: "中音",
+//   high: "高め",
+// };
 
-const SPEED_LABEL: Record<Speed, string> = {
-  slow: "ゆっくり",
-  normal: "普通",
-  fast: "速め",
-};
+// const SPEED_LABEL: Record<Speed, string> = {
+//   slow: "ゆっくり",
+//   normal: "普通",
+//   fast: "速め",
+// };
 
-const EMOTION_LABEL: Record<EmotionIntensity, string> = {
-  small: "控えめ",
-  medium: "普通",
-  large: "感情豊か",
-};
+// const EMOTION_LABEL: Record<EmotionIntensity, string> = {
+//   small: "控えめ",
+//   medium: "普通",
+//   large: "感情豊か",
+// };
 
-const QUALITY_LABEL: Record<VoiceQuality, string> = {
-  clear: "クリア",
-  breathy: "息まじり",
-  nasal: "鼻声",
-  husky: "ハスキー",
-};
+// const QUALITY_LABEL: Record<VoiceQuality, string> = {
+//   clear: "クリア",
+//   breathy: "息まじり",
+//   nasal: "鼻声",
+//   husky: "ハスキー",
+// };
 
-const AGE_LABEL: Record<Age, string> = {
-  child: "子供",
-  teen: "10代",
-  adult: "大人",
-};
+// const AGE_LABEL: Record<Age, string> = {
+//   child: "子供",
+//   teen: "10代",
+//   adult: "大人",
+// };
 
-const PERSONALITY_LABEL: Record<Personality, string> = {
-  calm: "穏やか",
-  cheerful: "明るい",
-  shy: "控えめ",
-  aggressive: "力強い",
-};
+// const PERSONALITY_LABEL: Record<Personality, string> = {
+//   calm: "穏やか",
+//   cheerful: "明るい",
+//   shy: "控えめ",
+//   aggressive: "力強い",
+// };
+
+/**
+ * Sanitize text for TTS: remove Unicode escape sequences (\uXXXX) and
+ * special symbols that can confuse the Gemini TTS model.
+ * - \uXXXX patterns (literal backslash-u + hex digits) → removed
+ * - Control characters (U+0000–U+001F except \n) → removed
+ * - Zero-width / invisible Unicode chars → removed
+ */
+function sanitizeForTts(text: string): string {
+  return text
+    // Literal \uXXXX escape sequences (4+ hex digits)
+    .replace(/\\u[0-9a-fA-F]{4,}/g, "")
+    // Control characters except newline
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x09\x0B-\x1F\x7F]/g, "")
+    // Zero-width and invisible Unicode characters
+    .replace(/[\u200B-\u200F\u2028-\u202F\uFEFF\uFFF9-\uFFFB]/g, "");
+}
 
 /**
  * Apply dictionary entries to text by injecting readings in parentheses.
@@ -92,6 +111,7 @@ export function buildPromptForCharacter(
   ].join("/");
 
   let prompt = `[${char.name}] ${traits}${commonTolkRules}\n`;
+  // let prompt = `[${char.name}]`;
 
   // Director's notes — user controls content and length
   if (char.directorsNotes?.trim()) {
@@ -99,5 +119,5 @@ export function buildPromptForCharacter(
   }
 
   prompt += `\n以下のセリフを読み上げてください:\n${processedText}`;
-  return prompt;
+  return sanitizeForTts(prompt);
 }
