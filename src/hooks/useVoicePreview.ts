@@ -4,7 +4,7 @@
 
 import { useState, useRef, useCallback } from "react";
 import type { Character, DictionaryEntry } from "@/types";
-import { GEMINI_API_BASE, GEMINI_TTS_MODEL, PREVIEW_TEXT } from "@/config";
+import { GEMINI_API_BASE, GEMINI_TTS_MODEL, PREVIEW_TEXT, USE_VERTEX_AI, TTS_PROXY_URL } from "@/config";
 import { buildPromptForCharacter } from "@/utils/prompt";
 import { base64ToArrayBuffer, pcmToWav } from "@/utils/audio";
 
@@ -25,15 +25,18 @@ export function useVoicePreview(
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const previewVoice = useCallback(async (charForm: Character) => {
-    if (!apiKey) {
+    if (!USE_VERTEX_AI && !apiKey) {
       alert("API Keyを設定してください");
       return;
     }
     setIsPreviewLoading(true);
     try {
       const prompt = buildPromptForCharacter(charForm, PREVIEW_TEXT, dictionary);
+      const ttsUrl = USE_VERTEX_AI
+        ? TTS_PROXY_URL
+        : `${GEMINI_API_BASE}/${GEMINI_TTS_MODEL}:generateContent?key=${apiKey}`;
       const res = await fetch(
-        `${GEMINI_API_BASE}/${GEMINI_TTS_MODEL}:generateContent?key=${apiKey}`,
+        ttsUrl,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

@@ -6,7 +6,7 @@
 
 import { useState, useRef, useCallback } from "react";
 import type { Character, DictionaryEntry, ScriptLine, SpeakerMap, GenerationProgress } from "@/types";
-import { GEMINI_API_BASE, GEMINI_TTS_MODEL, DEFAULT_PAUSE_MS, DEFAULT_REQUEST_DELAY_SEC, MAX_RETRIES } from "@/config";
+import { GEMINI_API_BASE, GEMINI_TTS_MODEL, DEFAULT_PAUSE_MS, DEFAULT_REQUEST_DELAY_SEC, MAX_RETRIES, USE_VERTEX_AI, TTS_PROXY_URL } from "@/config";
 import { buildPromptForCharacter } from "@/utils/prompt";
 import { base64ToArrayBuffer, createSilence, pcmToWav } from "@/utils/audio";
 
@@ -24,8 +24,9 @@ export interface UseAudioGenerationReturn {
   stopGeneration: () => void;
 }
 
-/** Build the TTS API URL with the given API key */
+/** Build the TTS API URL — uses Vertex AI proxy when configured, otherwise direct AI Studio */
 function apiUrl(apiKey: string): string {
+  if (USE_VERTEX_AI) return TTS_PROXY_URL;
   return `${GEMINI_API_BASE}/${GEMINI_TTS_MODEL}:generateContent?key=${apiKey}`;
 }
 
@@ -153,7 +154,7 @@ export function useAudioGeneration(
   }, []);
 
   const generateAudio = useCallback(async () => {
-    if (!apiKey) { alert("API Keyを設定してください"); return; }
+    if (!USE_VERTEX_AI && !apiKey) { alert("API Keyを設定してください"); return; }
 
     // Validate all speakers are mapped to characters
     const unmapped = detectedSpeakers.filter((sp) => !speakerMap[sp]);

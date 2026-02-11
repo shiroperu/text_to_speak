@@ -76,6 +76,13 @@ export const PREVIEW_TEXT = "こんにちは、テスト音声です。本日は
 export const GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
 export const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
+// --- Vertex AI proxy ---
+// When VITE_USE_VERTEX_AI is set (Vercel production), TTS requests go through
+// the /api/tts serverless function which authenticates with GCP service account.
+// When not set (local dev), the direct AI Studio API with API key is used.
+export const USE_VERTEX_AI = !!import.meta.env.VITE_USE_VERTEX_AI;
+export const TTS_PROXY_URL = "/api/tts";
+
 // --- UI: character color palette for visual distinction ---
 export const CHARACTER_COLORS = [
   "#f59e0b", "#3b82f6", "#10b981", "#ef4444",
