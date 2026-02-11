@@ -95,7 +95,19 @@ async function callTtsApi(
       throw new Error(`コンテンツブロック (${blockReason ?? reason})`);
     }
 
-    // Transient errors (OTHER, etc.): limited retries
+    // finishReason: OTHER can be a soft rate limit OR a voice/content incompatibility.
+    // Retry up to MAX_RETRIES times with a short wait; give up if it keeps failing
+    // (avoids infinite loop when voice is fundamentally incompatible).
+    if (reason === "OTHER") {
+      errorRetries++;
+      if (errorRetries < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, 8_000));
+        continue;
+      }
+      throw new Error(`生成失敗 (finishReason: OTHER) — ベースボイスを変更してみてください`);
+    }
+
+    // Other transient errors: limited retries with backoff
     errorRetries++;
     if (errorRetries < MAX_RETRIES) {
       await new Promise((r) => setTimeout(r, Math.pow(2, errorRetries) * 2000));

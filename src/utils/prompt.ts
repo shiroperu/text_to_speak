@@ -1,107 +1,103 @@
 // src/utils/prompt.ts
 // Prompt construction for Gemini TTS API.
-// Converts character parameters + dictionary into a structured prompt text.
-// Single-speaker mode only — ensures consistent voice per character.
+// Compact prompt design — minimizes token count to reduce finishReason:OTHER errors.
+// Voice selection is handled by voiceConfig; prompt provides style hints only.
+// Dictionary readings are injected inline (e.g. "築古（ちくふる）") instead of
+// a separate section, keeping the prompt short.
 
 import type { Character, DictionaryEntry } from "@/types";
 import type { Pitch, Speed, EmotionIntensity, VoiceQuality, Age, Personality } from "@/types";
 
-// --- Parameter-to-description maps ---
-// UIの列挙値を日本語の自然言語記述に変換する。
+// --- Compact voice trait labels ---
+// Short Japanese descriptions joined into a single line in the prompt.
 
-const PITCH_MAP: Record<Pitch, string> = {
-  low: "低い声、落ち着いたトーン",
-  mid: "中程度の高さ",
-  high: "高い声",
+const PITCH_LABEL: Record<Pitch, string> = {
+  low: "低め",
+  mid: "中音",
+  high: "高め",
 };
 
-const SPEED_MAP: Record<Speed, string> = {
-  slow: "ゆっくり、丁寧なペース",
-  normal: "自然な会話ペース",
-  fast: "テンポが速く、エネルギッシュ",
+const SPEED_LABEL: Record<Speed, string> = {
+  slow: "ゆっくり",
+  normal: "普通",
+  fast: "速め",
 };
 
-const EMOTION_MAP: Record<EmotionIntensity, string> = {
-  small: "感情を抑えた、控えめな表現",
-  medium: "適度な感情表現",
-  large: "感情豊かで、ドラマチックな表現",
+const EMOTION_LABEL: Record<EmotionIntensity, string> = {
+  small: "控えめ",
+  medium: "普通",
+  large: "感情豊か",
 };
 
-const QUALITY_MAP: Record<VoiceQuality, string> = {
-  clear: "クリアで明瞭な発声",
-  breathy: "息まじりの柔らかい声質",
-  nasal: "やや鼻にかかった声",
-  husky: "ハスキーで低めの声質",
+const QUALITY_LABEL: Record<VoiceQuality, string> = {
+  clear: "クリア",
+  breathy: "息まじり",
+  nasal: "鼻声",
+  husky: "ハスキー",
 };
 
-const AGE_MAP: Record<Age, string> = {
-  child: "子供のような声",
-  teen: "10代の若い声",
-  adult: "大人の声",
+const AGE_LABEL: Record<Age, string> = {
+  child: "子供",
+  teen: "10代",
+  adult: "大人",
 };
 
-const PERSONALITY_MAP: Record<Personality, string> = {
-  calm: "穏やかで落ち着いた話し方",
-  cheerful: "明るく元気な話し方",
-  shy: "控えめで遠慮がちな話し方",
-  aggressive: "力強く断定的な話し方",
+const PERSONALITY_LABEL: Record<Personality, string> = {
+  calm: "穏やか",
+  cheerful: "明るい",
+  shy: "控えめ",
+  aggressive: "力強い",
 };
 
 /**
  * Apply dictionary entries to text by injecting readings in parentheses.
+ * Only applies entries whose word actually appears in the text.
  * e.g. "築古マンション" -> "築古（ちくふる）マンション"
  */
 function applyDictionary(text: string, dictionary: DictionaryEntry[]): string {
   let result = text;
   for (const entry of dictionary) {
-    result = result.replaceAll(entry.word, `${entry.word}（${entry.reading}）`);
+    if (result.includes(entry.word)) {
+      result = result.replaceAll(entry.word, `${entry.word}（${entry.reading}）`);
+    }
   }
   return result;
 }
 
 /**
- * Build a single-speaker prompt for one script line.
- * Includes: audio profile, voice characteristics, director's notes,
- * pronunciation guide, and the line to speak.
+ * Build a compact single-speaker prompt for one script line.
+ * Structure: voice traits (1 line) + optional director's notes + spoken text.
+ * Kept minimal to stay well within TTS model token limits.
  */
 export function buildPromptForCharacter(
   char: Character,
   lineText: string,
   dictionary: DictionaryEntry[],
 ): string {
-  // Apply dictionary substitutions to the spoken text
+  // Apply dictionary readings inline — no separate pronunciation section needed
   const processedText = dictionary.length > 0
     ? applyDictionary(lineText, dictionary)
     : lineText;
 
-  let prompt = `## 音声プロファイル: ${char.name}\n\n`;
-  prompt += `### 声の特徴\n`;
-  prompt += `- 声の高さ: ${PITCH_MAP[char.pitch]}\n`;
-  prompt += `- 話速: ${SPEED_MAP[char.speed]}\n`;
-  prompt += `- 感情量: ${EMOTION_MAP[char.emotionIntensity]}\n`;
-  prompt += `- 声質: ${QUALITY_MAP[char.voiceQuality]}\n`;
-  prompt += `- 年齢感: ${AGE_MAP[char.age]}\n`;
-  prompt += `- 性格: ${PERSONALITY_MAP[char.personality]}\n`;
+  const commonTolkRules = "/\n決して単調にならずナレーター調を避ける。特定の人物に語りかけるように話す"
 
-  // Director's notes (free-form user input)
+  // All voice traits on one compact line with parameter names
+  const traits = [
+    `声の高さ:${PITCH_LABEL[char.pitch]}`,
+    `話速:${SPEED_LABEL[char.speed]}`,
+    `感情:${EMOTION_LABEL[char.emotionIntensity]}`,
+    `声質:${QUALITY_LABEL[char.voiceQuality]}`,
+    `年齢:${AGE_LABEL[char.age]}`,
+    `性格:${PERSONALITY_LABEL[char.personality]}`,
+  ].join("/");
+
+  let prompt = `[${char.name}] ${traits}${commonTolkRules}\n`;
+
+  // Director's notes — user controls content and length
   if (char.directorsNotes?.trim()) {
-    prompt += `\n### 演出指示\n${char.directorsNotes}\n`;
+    prompt += `${char.directorsNotes}\n`;
   }
 
-  // Pronunciation guide — always include ALL entries to keep prompt structure
-  // identical across lines (reduces voice variation from prompt differences)
-  if (dictionary.length > 0) {
-    prompt += `\n### 読み方ガイド\n`;
-    for (const entry of dictionary) {
-      prompt += `- 「${entry.word}」は「${entry.reading}」と読むこと\n`;
-    }
-  }
-
-  prompt += `\n### 一貫性ルール\n`;
-  prompt += `- このキャラクターの声、トーン、話し方を常に同一に保つこと。\n`;
-  prompt += `- セリフの内容に関わらず、声の高さ・声質・アクセントを変えないこと。\n`;
-  prompt += `- 同一人物が話しているように聞こえること。\n`;
-
-  prompt += `\n以下のセリフをこのキャラクターとして自然に読み上げてください:\n「${processedText}」`;
+  prompt += `\n以下のセリフを読み上げてください:\n${processedText}`;
   return prompt;
 }
