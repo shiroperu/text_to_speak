@@ -85,10 +85,14 @@ export default async function handler(
       throw new Error("Failed to create auth client");
     }
 
-    // getRequestHeaders exchanges OIDC token → GCP access token via WIF
-    let authHeaders: Awaited<ReturnType<typeof authClient.getRequestHeaders>>;
+    // Exchange OIDC token → GCP access token via WIF
+    let accessToken: string;
     try {
-      authHeaders = await authClient.getRequestHeaders();
+      const tokenResponse = await authClient.getAccessToken();
+      if (!tokenResponse.token) {
+        throw new Error("No access token returned");
+      }
+      accessToken = tokenResponse.token;
     } catch (authErr) {
       // Log WIF auth chain failure details for debugging
       console.error("WIF auth failed:", {
@@ -111,7 +115,7 @@ export default async function handler(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...authHeaders,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify(req.body),
     });
