@@ -36,7 +36,7 @@ export function Header({
           みんなのマンション　会話音声生成ツール
         </h1>
         <span className="text-[10px] text-slate-600 px-2 py-0.5 border border-slate-700 rounded">
-          Gemini TTS
+          ElevenLabs TTS
         </span>
       </div>
 
@@ -49,7 +49,7 @@ export function Header({
               type={showApiKey ? "text" : "password"}
               value={apiKey}
               onChange={(e) => onApiKeyChange(e.target.value)}
-              placeholder="Gemini API Key"
+              placeholder="ElevenLabs API Key"
               className="w-70 py-1.5 pl-3 pr-20 bg-slate-900 border border-slate-700 rounded-lg text-slate-100 text-xs font-sans"
             />
             <button

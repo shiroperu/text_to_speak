@@ -2,7 +2,7 @@
 // Root component for VoiceCast Studio.
 // Manages top-level application state and composes the layout
 // from Header, Sidebar, ScriptPanel, and GenerationControls.
-// Heavy logic is delegated to custom hooks (generation, playback, preview, auth, sync).
+// Heavy logic is delegated to custom hooks (generation, playback, preview, auth, sync, voices).
 // State (API key, characters, dictionary) is persisted to localStorage
 // and optionally synced to Firestore when logged in via Google.
 
@@ -12,9 +12,11 @@ import type { Character, DictionaryEntry, ScriptLine, SpeakerMap } from "@/types
 import { DEFAULT_CHARACTER } from "@/config";
 import { parseScriptFile, exportCharacters, importCharacters } from "@/utils/file";
 import { loadString, saveString, loadJson, saveJson } from "@/utils/storage";
+import { migrateCharacters } from "@/utils/migration";
 import { useAudioGeneration } from "@/hooks/useAudioGeneration";
 import { useAudioPlayback } from "@/hooks/useAudioPlayback";
 import { useVoicePreview } from "@/hooks/useVoicePreview";
+import { useElevenLabsVoices } from "@/hooks/useElevenLabsVoices";
 import { useAuth } from "@/hooks/useAuth";
 import { useFirestoreSync } from "@/hooks/useFirestoreSync";
 import { Header } from "@/components/Header";
@@ -27,7 +29,7 @@ import { DictionaryManager } from "@/components/DictionaryManager";
 export default function App() {
   // --- Core state (initialized from localStorage) ---
   const [apiKey, setApiKey] = useState(() => loadString("apiKey"));
-  const [characters, setCharacters] = useState<Character[]>(() => loadJson("characters", []));
+  const [characters, setCharacters] = useState<Character[]>(() => migrateCharacters(loadJson("characters", [])));
   const [editingChar, setEditingChar] = useState<Character | null>(null);
   const [dictionary, setDictionary] = useState<DictionaryEntry[]>(() => loadJson("dictionary", []));
   const [showDict, setShowDict] = useState(false);
@@ -52,6 +54,7 @@ export default function App() {
   const generation = useAudioGeneration(apiKey, characters, dictionary, scriptLines, speakerMap, detectedSpeakers);
   const playback = useAudioPlayback(generation.audioUrl, generation.audioBlob);
   const preview = useVoicePreview(apiKey, dictionary);
+  const { voices, isLoading: isVoicesLoading } = useElevenLabsVoices(apiKey);
 
   // --- Character CRUD ---
   const saveCharacter = (char: Character) => {
@@ -120,6 +123,7 @@ export default function App() {
         <Sidebar
           characters={characters}
           dictionary={dictionary}
+          voices={voices}
           onAddCharacter={() => setEditingChar({ ...DEFAULT_CHARACTER })}
           onEditCharacter={setEditingChar}
           onDeleteCharacter={deleteCharacter}
@@ -151,6 +155,8 @@ export default function App() {
       {editingChar && (
         <CharacterEditor
           character={editingChar}
+          voices={voices}
+          isVoicesLoading={isVoicesLoading}
           onSave={saveCharacter}
           onCancel={() => setEditingChar(null)}
           onPreview={preview.previewVoice}

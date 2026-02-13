@@ -1,13 +1,20 @@
 // src/utils/audio.ts
 // Audio utility functions for PCM/WAV manipulation.
-// Handles PCM-to-WAV conversion, silence generation, and Base64 decoding.
+// Handles PCM-to-WAV conversion and silence generation.
 // All functions are pure and operate on ArrayBuffer/TypedArray data.
+//
+// ElevenLabs migration:
+// - Removed base64ToArrayBuffer() — ElevenLabs returns raw binary PCM,
+//   no Base64 decoding needed.
+// - pcmToWav() and createSilence() retained — pcm_24000 output format
+//   uses the same PCM 16bit 24kHz mono format as before.
 
 import { SAMPLE_RATE, CHANNELS, BITS_PER_SAMPLE } from "@/config";
 
 /**
  * Convert raw PCM data to a WAV Blob.
  * Prepends a 44-byte RIFF/WAV header to the PCM payload.
+ * Expects PCM 16-bit signed little-endian mono at SAMPLE_RATE (24000 Hz).
  */
 export function pcmToWav(pcmData: ArrayBuffer): Blob {
   const dataLength = pcmData.byteLength;
@@ -47,21 +54,9 @@ export function pcmToWav(pcmData: ArrayBuffer): Blob {
 /**
  * Create a silent PCM buffer of the given duration.
  * Returns Int16Array filled with zeros (silence).
+ * Used to insert pauses between generated speech lines.
  */
 export function createSilence(durationMs: number): Int16Array {
   const samples = Math.floor((SAMPLE_RATE * durationMs) / 1000);
   return new Int16Array(samples);
-}
-
-/**
- * Decode a Base64-encoded string to an ArrayBuffer.
- * Used to decode Gemini API's Base64-encoded PCM audio response.
- */
-export function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes.buffer;
 }

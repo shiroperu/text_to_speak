@@ -9,6 +9,7 @@ import type {
   CharacterExport,
   DictionaryExport,
 } from "@/types";
+import { migrateCharacters } from "@/utils/migration";
 
 /**
  * Download a JSON object as a file.
@@ -59,13 +60,13 @@ export function exportCharacters(
   downloadJson(data, "characters.json");
 }
 
-/** Import characters + dictionary from a JSON file */
+/** Import characters + dictionary from a JSON file (with Gemini→ElevenLabs migration) */
 export function importCharacters(
   setCharacters: (chars: Character[]) => void,
   setDictionary: (entries: DictionaryEntry[]) => void,
 ): void {
   uploadJson<CharacterExport>((data) => {
-    if (data.characters) setCharacters(data.characters);
+    if (data.characters) setCharacters(migrateCharacters(data.characters));
     if (data.dictionary) setDictionary(data.dictionary);
   });
 }

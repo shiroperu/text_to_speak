@@ -9,6 +9,7 @@ import { doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
 import type { User } from "firebase/auth";
 import type { UserData, Character, DictionaryEntry } from "@/types";
 import { db } from "@/lib/firebase";
+import { migrateCharacters } from "@/utils/migration";
 
 /** Debounce delay for Firestore writes (ms) */
 const SAVE_DEBOUNCE_MS = 1000;
@@ -65,11 +66,11 @@ export function useFirestoreSync({
       const snapshot = await getDoc(docRef);
 
       if (snapshot.exists()) {
-        // Firestore has data — apply it to state
+        // Firestore has data — apply it to state (with Gemini→ElevenLabs migration)
         const data = snapshot.data() as UserData;
         isApplyingRemote.current = true;
         if (data.apiKey !== undefined) setApiKey(data.apiKey);
-        if (data.characters) setCharacters(data.characters);
+        if (data.characters) setCharacters(migrateCharacters(data.characters));
         if (data.dictionary) setDictionary(data.dictionary);
         // Allow React to process state updates before clearing the flag
         setTimeout(() => { isApplyingRemote.current = false; }, 0);
@@ -86,7 +87,7 @@ export function useFirestoreSync({
         const data = snap.data() as UserData;
         isApplyingRemote.current = true;
         if (data.apiKey !== undefined) setApiKey(data.apiKey);
-        if (data.characters) setCharacters(data.characters);
+        if (data.characters) setCharacters(migrateCharacters(data.characters));
         if (data.dictionary) setDictionary(data.dictionary);
         setTimeout(() => { isApplyingRemote.current = false; }, 0);
       });

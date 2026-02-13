@@ -1,14 +1,19 @@
 // src/hooks/useAudioGeneration.ts
-// Custom hook for the main audio generation pipeline.
-// Always uses single-speaker API for voice consistency —
-// each character goes through the identical code path every time,
-// ensuring the same voice across all lines and scripts.
+// Custom hook for the main audio generation pipeline using ElevenLabs TTS API.
+//
+// Processes each script line individually with single-speaker TTS.
+// Uses voice_settings built from Character UI params + emotion tag modifiers.
+// Supports previous_text / next_text for natural speech continuity.
+// Response is raw PCM (pcm_24000) — combined into WAV for playback/download.
 
 import { useState, useRef, useCallback } from "react";
-import type { Character, DictionaryEntry, ScriptLine, SpeakerMap, GenerationProgress } from "@/types";
-import { GEMINI_API_BASE, GEMINI_TTS_MODEL, DEFAULT_PAUSE_MS, DEFAULT_REQUEST_DELAY_SEC, MAX_RETRIES } from "@/config";
-import { buildPromptForCharacter } from "@/utils/prompt";
-import { base64ToArrayBuffer, createSilence, pcmToWav } from "@/utils/audio";
+import type { Character, DictionaryEntry, ScriptLine, SpeakerMap, GenerationProgress, VoiceSettings } from "@/types";
+import {
+  ELEVENLABS_API_BASE, ELEVENLABS_MODEL_ID, ELEVENLABS_OUTPUT_FORMAT,
+  DEFAULT_PAUSE_MS, DEFAULT_REQUEST_DELAY_SEC, MAX_RETRIES,
+} from "@/config";
+import { buildVoiceSettings, parseEmotionTag, applyEmotionModifier, prepareTextForTts } from "@/utils/prompt";
+import { createSilence, pcmToWav } from "@/utils/audio";
 
 export interface UseAudioGenerationReturn {
   isGenerating: boolean;
@@ -24,112 +29,111 @@ export interface UseAudioGenerationReturn {
   stopGeneration: () => void;
 }
 
-/** Build the TTS API URL with the given API key */
-function apiUrl(apiKey: string): string {
-  return `${GEMINI_API_BASE}/${GEMINI_TTS_MODEL}:generateContent?key=${apiKey}`;
+/** Default wait time (seconds) when 429 has no Retry-After header */
+const RATE_LIMIT_DEFAULT_WAIT_SEC = 30;
+
+/** Maximum 429 retries before giving up (prevents infinite loop) */
+const MAX_RATE_LIMIT_RETRIES = 5;
+
+/** Validate voiceId format — alphanumeric + underscores only (prevents URL injection) */
+function isValidVoiceId(id: string): boolean {
+  return /^[a-zA-Z0-9_]+$/.test(id);
 }
 
 /**
- * Make a single-speaker TTS API call with retry logic.
- * Always uses the same voiceConfig for a given character,
- * so the voice stays consistent across all lines.
+ * Make a single ElevenLabs TTS API call with retry logic.
+ * Returns raw PCM Int16Array, or null on unrecoverable failure.
+ *
+ * @param apiKey - ElevenLabs API key (sent via xi-api-key header)
+ * @param voiceId - ElevenLabs voice ID (used in URL path, validated for safe characters)
+ * @param text - Text to synthesize (emotion tags already stripped)
+ * @param voiceSettings - Computed voice_settings (with emotion modifiers applied)
+ * @param previousText - Text of the previous line (for speech continuity), or null
+ * @param nextText - Text of the next line (for speech continuity), or null
  */
 async function callTtsApi(
   apiKey: string,
-  char: Character,
-  prompt: string,
+  voiceId: string,
+  text: string,
+  voiceSettings: VoiceSettings,
+  previousText: string | null,
+  nextText: string | null,
 ): Promise<Int16Array | null> {
-  // retry counts only for non-rate-limit errors (OTHER, server errors)
+  // Validate voiceId before inserting into URL path
+  if (!isValidVoiceId(voiceId)) {
+    throw new Error(`無効なvoice ID: "${voiceId}"`);
+  }
+
+  const url = `${ELEVENLABS_API_BASE}/text-to-speech/${voiceId}?output_format=${ELEVENLABS_OUTPUT_FORMAT}`;
+
+  // Build request body — include previous/next text for natural continuity
+  const body: Record<string, unknown> = {
+    text,
+    model_id: ELEVENLABS_MODEL_ID,
+    voice_settings: voiceSettings,
+  };
+  if (previousText) body.previous_text = previousText;
+  if (nextText) body.next_text = nextText;
+
   let errorRetries = 0;
+  let rateLimitRetries = 0;
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const res = await fetch(apiUrl(apiKey), {
+    const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseModalities: ["AUDIO"],
-          temperature: 0.1,
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: char.voiceName },
-            },
-          },
-        },
-        safetySettings: [
-          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-        ],
-      }),
+      headers: {
+        "Content-Type": "application/json",
+        "xi-api-key": apiKey,
+      },
+      body: JSON.stringify(body),
     });
-    const data = await res.json();
 
-    // --- 429 Rate Limit: wait long and retry (does NOT count against retry limit) ---
+    // --- 429 Rate Limit: wait and retry with retry count limit ---
     if (res.status === 429) {
+      rateLimitRetries++;
+      if (rateLimitRetries >= MAX_RATE_LIMIT_RETRIES) {
+        throw new Error("レートリミット超過: リトライ回数上限に達しました");
+      }
       const retryAfter = res.headers.get("retry-after");
-      const waitSec = retryAfter ? parseInt(retryAfter, 10) : 30;
+      const waitSec = retryAfter ? parseInt(retryAfter, 10) : RATE_LIMIT_DEFAULT_WAIT_SEC;
       await new Promise((r) => setTimeout(r, waitSec * 1000));
       continue;
     }
 
-    // --- Other API errors: limited retries with backoff ---
-    if (data.error) {
-      errorRetries++;
-      if (errorRetries < MAX_RETRIES) {
-        await new Promise((r) => setTimeout(r, Math.pow(2, errorRetries) * 2000));
-        continue;
-      }
-      throw new Error(data.error.message);
+    // --- Success: response body is raw PCM binary ---
+    if (res.ok) {
+      const arrayBuffer = await res.arrayBuffer();
+      return new Int16Array(arrayBuffer);
     }
 
-    // --- Success: return audio data ---
-    const audioData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (audioData) {
-      return new Int16Array(base64ToArrayBuffer(audioData));
+    // --- Error: parse JSON error body if possible ---
+    let errorMessage = `HTTP ${res.status}`;
+    try {
+      const errorData = await res.json() as { detail?: { message?: string }; message?: string };
+      errorMessage = errorData.detail?.message ?? errorData.message ?? errorMessage;
+    } catch {
+      // Response may not be JSON — use status code
     }
 
-    // --- No audio data ---
-    const reason = data.candidates?.[0]?.finishReason ?? "不明";
-    const blockReason = data.promptFeedback?.blockReason;
-
-    // SAFETY block is not retryable
-    if (reason === "SAFETY" || blockReason) {
-      throw new Error(`コンテンツブロック (${blockReason ?? reason})`);
+    // 401 Unauthorized — API key issue, not retryable
+    if (res.status === 401) {
+      throw new Error(`認証エラー: APIキーが無効です (${errorMessage})`);
     }
 
-    // finishReason: OTHER can be a soft rate limit OR a voice/content incompatibility.
-    // Retry up to MAX_RETRIES times with a short wait; give up if it keeps failing
-    // (avoids infinite loop when voice is fundamentally incompatible).
-    if (reason === "OTHER") {
-      errorRetries++;
-      if (errorRetries < MAX_RETRIES) {
-        await new Promise((r) => setTimeout(r, 8_000));
-        continue;
-      }
-      throw new Error(`生成失敗 (finishReason: OTHER) — ベースボイスを変更してみてください`);
-    }
-
-    // Other transient errors: limited retries with backoff
+    // Other errors — retry with exponential backoff
     errorRetries++;
-    if (errorRetries < MAX_RETRIES) {
-      await new Promise((r) => setTimeout(r, Math.pow(2, errorRetries) * 2000));
-      continue;
+    if (errorRetries >= MAX_RETRIES) {
+      throw new Error(`API エラー: ${errorMessage}`);
     }
-
-    let msg = `音声データなし (finishReason: ${reason})`;
-    if (res.status !== 200) msg += ` [HTTP ${res.status}]`;
-    throw new Error(msg);
+    await new Promise((r) => setTimeout(r, Math.pow(2, errorRetries) * 2000));
   }
 }
 
 /**
  * Main audio generation hook.
- * Processes each script line individually with single-speaker TTS,
- * ensuring consistent voice per character regardless of line position or script.
+ * Processes script lines in original order (not grouped by character)
+ * to properly support previous_text / next_text continuity.
  */
 export function useAudioGeneration(
   apiKey: string,
@@ -147,6 +151,8 @@ export function useAudioGeneration(
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const abortRef = useRef(false);
+  // Track previous audioUrl in ref to avoid dependency in useCallback (#6 review fix)
+  const audioUrlRef = useRef<string | null>(null);
 
   const stopGeneration = useCallback(() => {
     abortRef.current = true;
@@ -166,7 +172,7 @@ export function useAudioGeneration(
     setGenError(null);
     abortRef.current = false;
 
-    // Build speaker -> character lookup
+    // Build speaker → character lookup
     const charLookup: Record<string, Character> = {};
     for (const sp of detectedSpeakers) {
       const char = characters.find((c) => c.id === speakerMap[sp]);
@@ -174,81 +180,89 @@ export function useAudioGeneration(
     }
 
     setGenProgress({ current: 0, total: scriptLines.length, currentSpeaker: "" });
-
-    // Results stored with original line index for correct reassembly order
-    type GeneratedLine = { originalIdx: number; pcm: Int16Array };
-    const results: GeneratedLine[] = [];
-    let completedCount = 0;
+    const pcmChunks: (Int16Array | null)[] = [];
 
     try {
-      // Group lines by character for consecutive generation (improves voice consistency)
-      const charGroups = new Map<string, { originalIdx: number; line: ScriptLine; char: Character }[]>();
+      // Process lines in script order to support previous_text / next_text
       for (let i = 0; i < scriptLines.length; i++) {
+        if (abortRef.current) break;
+
         const line = scriptLines[i]!;
         const char = charLookup[line.speaker]!;
-        const charId = char.id;
-        if (!charGroups.has(charId)) charGroups.set(charId, []);
-        charGroups.get(charId)!.push({ originalIdx: i, line, char });
+
+        setGenProgress({ current: i + 1, total: scriptLines.length, currentSpeaker: line.speaker });
+
+        // Parse emotion tag from line text
+        const { cleanText, modifier } = parseEmotionTag(line.text);
+
+        // Build voice_settings from character params, then apply emotion modifier
+        let voiceSettings = buildVoiceSettings(char);
+        if (modifier) {
+          voiceSettings = applyEmotionModifier(voiceSettings, modifier);
+        }
+
+        // Prepare text (dictionary + sanitization)
+        const ttsText = prepareTextForTts(cleanText, dictionary);
+
+        // Get previous/next line text for speech continuity
+        // Strip emotion tags and apply dictionary to keep them clean (#3 review fix)
+        const prevText = i > 0
+          ? prepareTextForTts(parseEmotionTag(scriptLines[i - 1]!.text).cleanText, dictionary)
+          : null;
+        const nextTextVal = i < scriptLines.length - 1
+          ? prepareTextForTts(parseEmotionTag(scriptLines[i + 1]!.text).cleanText, dictionary)
+          : null;
+
+        try {
+          const pcm = await callTtsApi(apiKey, char.voiceId, ttsText, voiceSettings, prevText, nextTextVal);
+          pcmChunks.push(pcm);
+        } catch (err) {
+          setGenError(`行${line.index + 1}でエラー: ${(err as Error).message}`);
+          pcmChunks.push(null);
+        }
+
+        // Rate limit delay (skip after last line)
+        if (i < scriptLines.length - 1 && !abortRef.current) {
+          await new Promise((r) => setTimeout(r, requestDelay * 1000));
+        }
       }
 
-      // Generate all lines for each character consecutively
-      for (const [, group] of charGroups) {
-        for (const { originalIdx, line, char } of group) {
-          if (abortRef.current) break;
-
-          completedCount++;
-          setGenProgress({ current: completedCount, total: scriptLines.length, currentSpeaker: line.speaker });
-
-          const prompt = buildPromptForCharacter(char, line.text, dictionary);
-          try {
-            const result = await callTtsApi(apiKey, char, prompt);
-            if (result) results.push({ originalIdx, pcm: result });
-          } catch (err) {
-            setGenError(`行${line.index + 1}でエラー: ${(err as Error).message}`);
+      // Combine all PCM chunks with silence gaps
+      if (!abortRef.current) {
+        const validChunks = pcmChunks.filter((c): c is Int16Array => c !== null);
+        if (validChunks.length > 0) {
+          const allParts: Int16Array[] = [];
+          for (let i = 0; i < validChunks.length; i++) {
+            allParts.push(validChunks[i]!);
+            if (i < validChunks.length - 1) {
+              allParts.push(createSilence(pauseMs));
+            }
           }
 
-          // Rate limit delay between requests (skip after last line of last group)
-          if (completedCount < scriptLines.length && !abortRef.current) {
-            await new Promise((r) => setTimeout(r, requestDelay * 1000));
+          const totalLen = allParts.reduce((sum, c) => sum + c.length, 0);
+          const combined = new Int16Array(totalLen);
+          let offset = 0;
+          for (const part of allParts) {
+            combined.set(part, offset);
+            offset += part.length;
           }
-        }
-        if (abortRef.current) break;
-      }
 
-      // Sort results back to original script order and combine
-      if (!abortRef.current && results.length > 0) {
-        results.sort((a, b) => a.originalIdx - b.originalIdx);
-
-        const allPcmChunks: Int16Array[] = [];
-        for (let i = 0; i < results.length; i++) {
-          allPcmChunks.push(results[i]!.pcm);
-          // Insert silence between lines (not after the last one)
-          if (i < results.length - 1) {
-            allPcmChunks.push(createSilence(pauseMs));
-          }
+          const wav = pcmToWav(combined.buffer);
+          // Revoke previous URL via ref (avoids audioUrl in dependency array)
+          if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+          const newUrl = URL.createObjectURL(wav);
+          audioUrlRef.current = newUrl;
+          setAudioBlob(wav);
+          setAudioUrl(newUrl);
+          setGenProgress({ current: scriptLines.length, total: scriptLines.length, currentSpeaker: "完了" });
         }
-
-        const totalLength = allPcmChunks.reduce((sum, chunk) => sum + chunk.length, 0);
-        const combined = new Int16Array(totalLength);
-        let offset = 0;
-        for (const chunk of allPcmChunks) {
-          combined.set(chunk, offset);
-          offset += chunk.length;
-        }
-        const wav = pcmToWav(combined.buffer);
-        // Clean up previous URL
-        if (audioUrl) URL.revokeObjectURL(audioUrl);
-        const url = URL.createObjectURL(wav);
-        setAudioBlob(wav);
-        setAudioUrl(url);
-        setGenProgress({ current: scriptLines.length, total: scriptLines.length, currentSpeaker: "完了" });
       }
     } catch (err) {
       setGenError("生成エラー: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsGenerating(false);
     }
-  }, [apiKey, characters, dictionary, scriptLines, speakerMap, detectedSpeakers, pauseMs, requestDelay, audioUrl]);
+  }, [apiKey, characters, dictionary, scriptLines, speakerMap, detectedSpeakers, pauseMs, requestDelay]);
 
   return {
     isGenerating, genProgress, genError,

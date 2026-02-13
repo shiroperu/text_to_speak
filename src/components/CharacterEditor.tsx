@@ -1,34 +1,39 @@
 // src/components/CharacterEditor.tsx
 // Modal dialog for creating and editing characters.
-// Contains all voice parameter selectors (RadioGroup) and director's notes textarea.
+// Contains voice selector (dynamic from ElevenLabs API) and voice parameter
+// selectors (RadioGroup) for speed, emotion, quality, personality.
 // Supports voice preview playback via the onPreview callback.
+//
+// ElevenLabs migration:
+// - Voice selector now uses dynamic voice list (passed as prop)
+// - Removed pitch, age, directorsNotes UI (not controllable via ElevenLabs)
+// - voiceName → voiceId
 
 import { useState } from "react";
-import type { Character } from "@/types";
+import type { Character, ElevenLabsVoice } from "@/types";
 import {
   DEFAULT_CHARACTER,
-  GEMINI_VOICES,
-  PITCH_OPTIONS,
   SPEED_OPTIONS,
   EMOTION_OPTIONS,
   QUALITY_OPTIONS,
-  AGE_OPTIONS,
   PERSONALITY_OPTIONS,
 } from "@/config";
 import { generateId } from "@/utils/id";
 import { RadioGroup } from "./RadioGroup";
 import { IconX, IconPlay } from "./icons";
 
-// --- 日本語表示ラベル ---
-const PITCH_LABELS = { low: "低い", mid: "中", high: "高い" } as const;
+// --- Japanese display labels for RadioGroup options ---
 const SPEED_LABELS = { slow: "ゆっくり", normal: "普通", fast: "速い" } as const;
 const EMOTION_LABELS = { small: "控えめ", medium: "普通", large: "豊か" } as const;
 const QUALITY_LABELS = { clear: "クリア", breathy: "息まじり", nasal: "鼻声", husky: "ハスキー" } as const;
-const AGE_LABELS = { child: "子供", teen: "10代", adult: "大人" } as const;
 const PERSONALITY_LABELS = { calm: "穏やか", cheerful: "明るい", shy: "控えめ", aggressive: "力強い" } as const;
 
 interface CharacterEditorProps {
   character: Character;
+  /** Available ElevenLabs voices for the voice selector dropdown */
+  voices: ElevenLabsVoice[];
+  /** Whether the voice list is currently being loaded from API */
+  isVoicesLoading: boolean;
   onSave: (char: Character) => void;
   onCancel: () => void;
   onPreview: (charForm: Character) => void;
@@ -37,6 +42,8 @@ interface CharacterEditorProps {
 
 export function CharacterEditor({
   character,
+  voices,
+  isVoicesLoading,
   onSave,
   onCancel,
   onPreview,
@@ -88,49 +95,50 @@ export function CharacterEditor({
                 ベースボイス
               </label>
               <select
-                value={form.voiceName}
-                onChange={(e) => update("voiceName", e.target.value)}
+                value={form.voiceId}
+                onChange={(e) => update("voiceId", e.target.value)}
                 className="w-full py-2 px-3 bg-slate-900 border border-slate-700 rounded-lg text-slate-100 text-sm font-sans box-border"
               >
-                {GEMINI_VOICES.map((v) => (
-                  <option key={v.name} value={v.name}>
-                    {v.name} — {v.desc}
+                <option value="">
+                  {isVoicesLoading ? "読み込み中..." : "-- ボイスを選択 --"}
+                </option>
+                {voices.map((v) => (
+                  <option key={v.voice_id} value={v.voice_id}>
+                    {v.name}
+                    {v.labels.gender ? ` (${v.labels.gender})` : ""}
+                    {v.labels.use_case ? ` - ${v.labels.use_case}` : ""}
                   </option>
                 ))}
               </select>
+              <p className="mt-1 text-[10px] text-slate-500 leading-tight">
+                日本語ボイスは
+                <a
+                  href="https://elevenlabs.io/voice-library"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:text-blue-300 underline"
+                >
+                  Voice Library
+                </a>
+                で「Japanese」で絞り込み → 追加してください
+              </p>
             </div>
           </div>
 
           {/* Voice parameter radio groups (2 columns) */}
           <div className="grid grid-cols-2 gap-x-6">
-            <RadioGroup label="声の高さ" options={PITCH_OPTIONS} value={form.pitch} onChange={(v) => update("pitch", v)} labels={PITCH_LABELS} />
             <RadioGroup label="話速" options={SPEED_OPTIONS} value={form.speed} onChange={(v) => update("speed", v)} labels={SPEED_LABELS} />
             <RadioGroup label="感情量" options={EMOTION_OPTIONS} value={form.emotionIntensity} onChange={(v) => update("emotionIntensity", v)} labels={EMOTION_LABELS} />
             <RadioGroup label="声質" options={QUALITY_OPTIONS} value={form.voiceQuality} onChange={(v) => update("voiceQuality", v)} labels={QUALITY_LABELS} />
-            <RadioGroup label="年齢" options={AGE_OPTIONS} value={form.age} onChange={(v) => update("age", v)} labels={AGE_LABELS} />
             <RadioGroup label="性格" options={PERSONALITY_OPTIONS} value={form.personality} onChange={(v) => update("personality", v)} labels={PERSONALITY_LABELS} />
           </div>
 
-          {/* Director's Notes textarea */}
-          <div className="mt-2 mb-4">
-            <label className="block text-[11px] text-slate-400 mb-1.5 uppercase tracking-widest">
-              詳細口調設定 (Director's Notes)
-            </label>
-            <textarea
-              value={form.directorsNotes}
-              onChange={(e) => update("directorsNotes", e.target.value)}
-              placeholder={"emotional pattern:\n  default: cold and blunt\n  embarrassed: pitch rises slightly\n\narticulation:\n  clear consonants\n  short pauses before important words"}
-              rows={8}
-              className="w-full py-2.5 px-3 bg-slate-900 border border-slate-700 rounded-lg text-slate-300 text-[13px] font-mono resize-y box-border leading-relaxed"
-            />
-          </div>
-
           {/* Preview section */}
-          <div className="bg-slate-900 rounded-xl p-3.5 border border-slate-800">
+          <div className="bg-slate-900 rounded-xl p-3.5 border border-slate-800 mt-2">
             <div className="flex items-center gap-2.5">
               <button
                 onClick={() => onPreview(form)}
-                disabled={isPreviewLoading || !form.name}
+                disabled={isPreviewLoading || !form.name || !form.voiceId}
                 className={`flex items-center gap-1.5 px-4 py-1.5 border-none rounded-lg text-[13px] font-semibold font-sans
                   ${isPreviewLoading
                     ? "bg-slate-700 text-slate-400 cursor-wait"
@@ -145,7 +153,7 @@ export function CharacterEditor({
                 {isPreviewLoading ? "生成中..." : "プレビュー再生"}
               </button>
               <span className="text-[11px] text-slate-500">
-                サンプルテキストで音声を確認
+                {form.voiceId ? "サンプルテキストで音声を確認" : "ボイスを選択してください"}
               </span>
             </div>
           </div>
