@@ -211,15 +211,15 @@ function sanitizeForTts(text: string): string {
 }
 
 /**
- * Apply dictionary entries to text by injecting readings in parentheses.
+ * Apply dictionary entries to text by replacing words with their readings.
  * Only applies entries whose word actually appears in the text.
- * e.g. "築古マンション" → "築古（ちくふる）マンション"
+ * e.g. "築古マンション" → "ちくふるマンション"
  */
 function applyDictionary(text: string, dictionary: DictionaryEntry[]): string {
   let result = text;
   for (const entry of dictionary) {
     if (result.includes(entry.word)) {
-      result = result.replaceAll(entry.word, `${entry.word}（${entry.reading}）`);
+      result = result.replaceAll(entry.word, entry.reading);
     }
   }
   return result;
