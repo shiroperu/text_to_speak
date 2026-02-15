@@ -1,18 +1,17 @@
 // src/hooks/useAudioGeneration.ts
-// Custom hook for the main audio generation pipeline using ElevenLabs TTS API.
+// Custom hook for the main audio generation pipeline using ElevenLabs TTS API (v3).
 //
 // Processes each script line individually with single-speaker TTS.
-// Uses voice_settings built from Character UI params + emotion tag modifiers.
-// Supports previous_text / next_text for natural speech continuity.
+// Uses voice_settings built from Character UI params (v3 audio tags handled by model).
 // Response is raw PCM (pcm_24000) — combined into WAV for playback/download.
 
 import { useState, useRef, useCallback } from "react";
 import type { Character, DictionaryEntry, ScriptLine, SpeakerMap, GenerationProgress, VoiceSettings } from "@/types";
 import {
   ELEVENLABS_API_BASE, ELEVENLABS_MODEL_ID, ELEVENLABS_OUTPUT_FORMAT,
-  DEFAULT_PAUSE_MS, DEFAULT_REQUEST_DELAY_SEC, MAX_RETRIES,
+  ELEVENLABS_MAX_CHARS, DEFAULT_PAUSE_MS, DEFAULT_REQUEST_DELAY_SEC, MAX_RETRIES,
 } from "@/config";
-import { buildVoiceSettings, parseEmotionTag, applyEmotionModifier, prepareTextForTts } from "@/utils/prompt";
+import { buildVoiceSettings, extractAudioTag, prepareTextWithAudioTag } from "@/utils/prompt";
 import { createSilence, pcmToWav } from "@/utils/audio";
 
 export interface UseAudioGenerationReturn {
@@ -46,18 +45,14 @@ function isValidVoiceId(id: string): boolean {
  *
  * @param apiKey - ElevenLabs API key (sent via xi-api-key header)
  * @param voiceId - ElevenLabs voice ID (used in URL path, validated for safe characters)
- * @param text - Text to synthesize (emotion tags already stripped)
- * @param voiceSettings - Computed voice_settings (with emotion modifiers applied)
- * @param previousText - Text of the previous line (for speech continuity), or null
- * @param nextText - Text of the next line (for speech continuity), or null
+ * @param text - Text to synthesize (may contain v3 audio tags like [angry])
+ * @param voiceSettings - Computed voice_settings from character UI params
  */
 async function callTtsApi(
   apiKey: string,
   voiceId: string,
   text: string,
   voiceSettings: VoiceSettings,
-  previousText: string | null,
-  nextText: string | null,
 ): Promise<Int16Array | null> {
   // Validate voiceId before inserting into URL path
   if (!isValidVoiceId(voiceId)) {
@@ -66,14 +61,12 @@ async function callTtsApi(
 
   const url = `${ELEVENLABS_API_BASE}/text-to-speech/${voiceId}?output_format=${ELEVENLABS_OUTPUT_FORMAT}`;
 
-  // Build request body — include previous/next text for natural continuity
+  // Build request body (v3 does not support previous_text / next_text)
   const body: Record<string, unknown> = {
     text,
     model_id: ELEVENLABS_MODEL_ID,
     voice_settings: voiceSettings,
   };
-  if (previousText) body.previous_text = previousText;
-  if (nextText) body.next_text = nextText;
 
   let errorRetries = 0;
   let rateLimitRetries = 0;
@@ -132,8 +125,7 @@ async function callTtsApi(
 
 /**
  * Main audio generation hook.
- * Processes script lines in original order (not grouped by character)
- * to properly support previous_text / next_text continuity.
+ * Processes script lines in original order.
  */
 export function useAudioGeneration(
   apiKey: string,
@@ -183,7 +175,7 @@ export function useAudioGeneration(
     const pcmChunks: (Int16Array | null)[] = [];
 
     try {
-      // Process lines in script order to support previous_text / next_text
+      // Process lines in script order
       for (let i = 0; i < scriptLines.length; i++) {
         if (abortRef.current) break;
 
@@ -192,29 +184,24 @@ export function useAudioGeneration(
 
         setGenProgress({ current: i + 1, total: scriptLines.length, currentSpeaker: line.speaker });
 
-        // Parse emotion tag from line text
-        const { cleanText, modifier } = parseEmotionTag(line.text);
+        // Extract audio tag from line text (v3: tag stays in TTS text)
+        const { cleanText, textWithTag } = extractAudioTag(line.text);
 
-        // Build voice_settings from character params, then apply emotion modifier
-        let voiceSettings = buildVoiceSettings(char);
-        if (modifier) {
-          voiceSettings = applyEmotionModifier(voiceSettings, modifier);
+        // Build voice_settings from character params (v3 handles tags via model)
+        const voiceSettings = buildVoiceSettings(char);
+
+        // Prepare TTS text with audio tag preserved (dictionary + sanitization)
+        const ttsText = prepareTextWithAudioTag(textWithTag, cleanText, dictionary);
+
+        // Warn if text exceeds v3 character limit (continue generation, don't abort)
+        if (ttsText.length > ELEVENLABS_MAX_CHARS) {
+          const msg = `行${line.index + 1}: テキスト長 ${ttsText.length} 文字が上限 ${ELEVENLABS_MAX_CHARS} 文字を超過`;
+          console.warn(msg);
+          setGenError((prev) => prev ? `${prev}\n${msg}` : msg);
         }
 
-        // Prepare text (dictionary + sanitization)
-        const ttsText = prepareTextForTts(cleanText, dictionary);
-
-        // Get previous/next line text for speech continuity
-        // Strip emotion tags and apply dictionary to keep them clean (#3 review fix)
-        const prevText = i > 0
-          ? prepareTextForTts(parseEmotionTag(scriptLines[i - 1]!.text).cleanText, dictionary)
-          : null;
-        const nextTextVal = i < scriptLines.length - 1
-          ? prepareTextForTts(parseEmotionTag(scriptLines[i + 1]!.text).cleanText, dictionary)
-          : null;
-
         try {
-          const pcm = await callTtsApi(apiKey, char.voiceId, ttsText, voiceSettings, prevText, nextTextVal);
+          const pcm = await callTtsApi(apiKey, char.voiceId, ttsText, voiceSettings);
           pcmChunks.push(pcm);
         } catch (err) {
           setGenError(`行${line.index + 1}でエラー: ${(err as Error).message}`);

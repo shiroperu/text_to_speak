@@ -2,11 +2,11 @@
 // Central type definitions for VoiceCast Studio.
 // All domain models, API-related types, and shared interfaces live here.
 //
-// ElevenLabs TTS API migration:
+// ElevenLabs TTS API (v3) migration:
 // - GeminiVoice → ElevenLabsVoice (voice_id based, fetched dynamically from API)
 // - Character: removed pitch, age, directorsNotes (not controllable via ElevenLabs)
 // - Added VoiceSettings for ElevenLabs voice_settings parameter
-// - Added EmotionTag / EmotionTagModifier for per-line emotion control
+// - Added AudioTag / AudioTagInfo for v3 audio tag system (replaces EmotionTag/EmotionTagModifier)
 // - Added ElevenLabsVoiceResponse for GET /voices API response
 
 // ============================================================
@@ -77,36 +77,47 @@ export interface VoiceSettings {
 }
 
 // ============================================================
-// Emotion tag system
+// Audio tag system (ElevenLabs v3)
 // ============================================================
 
 /**
- * Emotion tag identifiers.
- * Used in script text as [emotion:angry], [whisper], etc.
+ * Audio tag identifiers for ElevenLabs v3 model.
+ * Used in script text as [angry], [whispers], etc.
+ * v3 model interprets these tags directly — no numeric voice_settings adjustment needed.
+ *
+ * Emotion tags (12): angry, sad, happy, excited, calm, fearful,
+ *   nervous, frustrated, curious, sarcastic, mischievously, sorrowful
+ * Performance tags (6): whispers, laughs, sighs, crying, gasps, shout
  */
-export type EmotionTag =
-  | "emotion:angry"
-  | "emotion:sad"
-  | "emotion:happy"
-  | "emotion:excited"
-  | "emotion:calm"
-  | "emotion:fearful"
-  | "whisper"
+export type AudioTag =
+  | "angry"
+  | "sad"
+  | "happy"
+  | "excited"
+  | "calm"
+  | "fearful"
+  | "nervous"
+  | "frustrated"
+  | "curious"
+  | "sarcastic"
+  | "mischievously"
+  | "sorrowful"
+  | "whispers"
+  | "laughs"
+  | "sighs"
+  | "crying"
+  | "gasps"
   | "shout";
 
 /**
- * Numeric modifiers applied to base VoiceSettings when an emotion tag is detected.
- * null values mean "no change" (keep the base value).
+ * Metadata for an audio tag (UI display and categorization).
+ * v3 does not need numeric modifiers — the model interprets tags directly.
  */
-export interface EmotionTagModifier {
-  /** Additive adjustment to stability (-1.0 to +1.0) */
-  stability: number;
-  /** Additive adjustment to style (-1.0 to +1.0) */
-  style: number;
-  /** Absolute speed override, or null to keep base speed */
-  speed: number | null;
-  /** Human-readable description of the emotion effect */
+export interface AudioTagInfo {
+  /** Japanese label for UI display */
   label: string;
+  /** Tag category for UI grouping */
+  category: "emotion" | "performance";
 }
 
 // ============================================================
