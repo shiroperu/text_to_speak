@@ -1,14 +1,20 @@
 // src/components/Sidebar.tsx
 // Left sidebar panel: character list with CRUD actions,
 // dictionary access, and character set export/import.
+//
+// ElevenLabs migration:
+// - Character summary now shows voiceId (truncated) instead of voiceName + pitch
+// - Voice name resolution requires the voices list (passed as prop)
 
-import type { Character, DictionaryEntry } from "@/types";
+import type { Character, DictionaryEntry, ElevenLabsVoice } from "@/types";
 import { CHARACTER_COLORS } from "@/config";
 import { IconPlus, IconEdit, IconTrash, IconBook, IconSave, IconUpload } from "./icons";
 
 interface SidebarProps {
   characters: Character[];
   dictionary: DictionaryEntry[];
+  /** Available ElevenLabs voices for resolving voiceId → display name */
+  voices: ElevenLabsVoice[];
   onAddCharacter: () => void;
   onEditCharacter: (char: Character) => void;
   onDeleteCharacter: (id: string) => void;
@@ -22,9 +28,20 @@ function getCharColor(idx: number): string {
   return CHARACTER_COLORS[idx % CHARACTER_COLORS.length]!;
 }
 
+/** Resolve voiceId to display name, falling back to truncated ID or placeholder */
+function getVoiceDisplayName(voiceId: string, voices: ElevenLabsVoice[]): string {
+  if (!voiceId) return "未選択";
+  const found = voices.find((v) => v.voice_id === voiceId);
+  if (found) return found.name;
+  // Voice not in list (could be loading, or voice was deleted)
+  // Show truncated ID as fallback
+  return voiceId.length > 12 ? `${voiceId.slice(0, 12)}...` : voiceId;
+}
+
 export function Sidebar({
   characters,
   dictionary,
+  voices,
   onAddCharacter,
   onEditCharacter,
   onDeleteCharacter,
@@ -92,7 +109,7 @@ export function Sidebar({
                 </div>
               </div>
               <div className="text-[11px] text-slate-500 mt-1">
-                {char.voiceName} · {char.pitch} · {char.speed} · {char.voiceQuality}
+                {getVoiceDisplayName(char.voiceId, voices)} · {char.speed} · {char.voiceQuality}
               </div>
             </div>
           ))

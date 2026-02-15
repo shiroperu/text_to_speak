@@ -1,12 +1,20 @@
 // src/hooks/useVoicePreview.ts
-// Custom hook for character voice preview.
+// Custom hook for character voice preview using ElevenLabs TTS API.
 // Makes a single TTS API call with sample text to let the user hear the voice.
+//
+// ElevenLabs migration:
+// - Uses xi-api-key header authentication
+// - Sends voice_settings built from Character UI params
+// - Receives raw PCM binary (pcm_24000), converts to WAV for playback
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import type { Character, DictionaryEntry } from "@/types";
-import { GEMINI_API_BASE, GEMINI_TTS_MODEL, PREVIEW_TEXT } from "@/config";
-import { buildPromptForCharacter } from "@/utils/prompt";
-import { base64ToArrayBuffer, pcmToWav } from "@/utils/audio";
+import {
+  ELEVENLABS_API_BASE, ELEVENLABS_MODEL_ID, ELEVENLABS_OUTPUT_FORMAT,
+  PREVIEW_TEXT,
+} from "@/config";
+import { buildVoiceSettings, prepareTextForTts } from "@/utils/prompt";
+import { pcmToWav } from "@/utils/audio";
 
 export interface UseVoicePreviewReturn {
   isPreviewLoading: boolean;
@@ -15,7 +23,7 @@ export interface UseVoicePreviewReturn {
 
 /**
  * Hook for previewing a character's voice.
- * Generates audio from sample text and plays it immediately.
+ * Generates audio from sample text using ElevenLabs TTS API and plays it.
  */
 export function useVoicePreview(
   apiKey: string,
@@ -24,48 +32,69 @@ export function useVoicePreview(
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Clean up audio object URL on unmount to prevent memory leaks (#5 review fix)
+  useEffect(() => {
+    return () => {
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+        URL.revokeObjectURL(previewAudioRef.current.src);
+        previewAudioRef.current = null;
+      }
+    };
+  }, []);
+
   const previewVoice = useCallback(async (charForm: Character) => {
     if (!apiKey) {
       alert("API Keyを設定してください");
       return;
     }
+    if (!charForm.voiceId) {
+      alert("ボイスを選択してください");
+      return;
+    }
+
     setIsPreviewLoading(true);
     try {
-      const prompt = buildPromptForCharacter(charForm, PREVIEW_TEXT, dictionary);
-      const res = await fetch(
-        `${GEMINI_API_BASE}/${GEMINI_TTS_MODEL}:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              responseModalities: ["AUDIO"],
-              temperature: 0.1,
-              speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: { voiceName: charForm.voiceName },
-                },
-              },
-            },
-            safetySettings: [
-              { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-            ],
-          }),
+      // Build voice_settings from character UI params
+      const voiceSettings = buildVoiceSettings(charForm);
+      // Prepare text with dictionary readings and sanitization
+      const text = prepareTextForTts(PREVIEW_TEXT, dictionary);
+
+      // Validate voiceId before URL insertion (prevents URL injection)
+      if (!/^[a-zA-Z0-9_]+$/.test(charForm.voiceId)) {
+        throw new Error(`無効なvoice ID: "${charForm.voiceId}"`);
+      }
+
+      const url = `${ELEVENLABS_API_BASE}/text-to-speech/${charForm.voiceId}?output_format=${ELEVENLABS_OUTPUT_FORMAT}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "xi-api-key": apiKey,
         },
-      );
-      const data = await res.json();
-      if (data.error) throw new Error(data.error.message);
+        body: JSON.stringify({
+          text,
+          model_id: ELEVENLABS_MODEL_ID,
+          voice_settings: voiceSettings,
+        }),
+      });
 
-      const audioData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (!audioData) throw new Error("音声データが取得できませんでした");
+      if (!res.ok) {
+        // Try to extract error message from JSON response body
+        let errorMsg = `HTTP ${res.status}`;
+        try {
+          const errorData = await res.json() as { detail?: { message?: string }; message?: string };
+          errorMsg = errorData.detail?.message ?? errorData.message ?? errorMsg;
+        } catch {
+          // Response may not be JSON
+        }
+        throw new Error(errorMsg);
+      }
 
-      const pcm = base64ToArrayBuffer(audioData);
-      const wav = pcmToWav(pcm);
-      const url = URL.createObjectURL(wav);
+      // Response is raw PCM binary — convert to WAV for Audio playback
+      const arrayBuffer = await res.arrayBuffer();
+      const wav = pcmToWav(arrayBuffer);
+      const audioUrl = URL.createObjectURL(wav);
 
       // Clean up previous preview audio
       if (previewAudioRef.current) {
@@ -73,7 +102,7 @@ export function useVoicePreview(
         URL.revokeObjectURL(previewAudioRef.current.src);
       }
 
-      const audio = new Audio(url);
+      const audio = new Audio(audioUrl);
       previewAudioRef.current = audio;
       audio.play();
     } catch (err) {
