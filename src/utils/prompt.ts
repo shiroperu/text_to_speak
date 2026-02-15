@@ -1,31 +1,28 @@
 // src/utils/prompt.ts
-// Voice settings construction and text processing for ElevenLabs TTS API.
+// Voice settings construction and text processing for ElevenLabs TTS API (v3).
 //
-// This file replaces the Gemini prompt-building logic with:
+// This file provides:
 // 1. buildVoiceSettings() — converts Character UI params → ElevenLabs voice_settings
-// 2. parseEmotionTag() — extracts emotion tags from script text
-// 3. applyEmotionModifier() — adjusts voice_settings based on detected emotion tag
-// 4. prepareTextForTts() — applies dictionary + sanitization to text before API call
+// 2. extractAudioTag() — extracts v3 audio tags from script text (tags stay in TTS text)
+// 3. prepareTextForTts() — applies dictionary + sanitization to clean text
+// 4. prepareTextWithAudioTag() — applies dictionary + sanitization while preserving audio tags
 //
-// sanitizeForTts() and applyDictionary() are retained from the Gemini era.
+// v3 migration: applyEmotionModifier() removed — v3 model interprets audio tags directly.
+// sanitizeForTts() and applyDictionary() are retained from earlier versions.
 
 import type {
   Character,
   DictionaryEntry,
   VoiceSettings,
-  EmotionTag,
-  EmotionTagModifier,
   Speed,
   EmotionIntensity,
   VoiceQuality,
   Personality,
 } from "@/types";
 import {
-  EMOTION_TAGS,
+  AUDIO_TAGS,
   VOICE_SETTING_MIN,
   VOICE_SETTING_MAX,
-  SPEED_MIN,
-  SPEED_MAX,
 } from "@/config";
 
 // ============================================================
@@ -80,13 +77,13 @@ const QUALITY_BOOST_MAP: Record<VoiceQuality, boolean> = {
 };
 
 // ============================================================
-// Emotion tag regex
+// Audio tag regex (v3)
 // ============================================================
-// Matches tags like [emotion:angry], [whisper], [shout] at the start of text.
+// Matches v3 audio tags like [angry], [whispers], [shout] at the start of text.
 // The tag must be followed by a space (or end of string) to avoid false matches.
 // Captures the tag content without brackets.
 
-const EMOTION_TAG_REGEX = /^\[(emotion:\w+|\w+)\]\s*/;
+const AUDIO_TAG_REGEX = /^\[(\w+)\]\s*/;
 
 // ============================================================
 // Public API
@@ -113,71 +110,45 @@ export function buildVoiceSettings(char: Character): VoiceSettings {
 }
 
 /**
- * Parse an emotion tag from the beginning of a script line.
- * Returns the cleaned text (tag removed) and the matching modifier if found.
+ * Extract a v3 audio tag from the beginning of a script line.
+ * Unlike v2, the tag is NOT removed from the TTS text — v3 model interprets it directly.
+ *
+ * Returns:
+ * - cleanText: tag removed (for previous_text / next_text continuity)
+ * - textWithTag: original text with tag preserved (for TTS API text field)
  *
  * Examples:
- *   "[emotion:angry] そんなことは許さない！"
- *     → { cleanText: "そんなことは許さない！", modifier: { stability: -0.15, ... } }
+ *   "[angry] そんなことは許さない！"
+ *     → { cleanText: "そんなことは許さない！", textWithTag: "[angry] そんなことは許さない！" }
  *   "普通のテキスト"
- *     → { cleanText: "普通のテキスト", modifier: null }
+ *     → { cleanText: "普通のテキスト", textWithTag: "普通のテキスト" }
  */
-export function parseEmotionTag(text: string): {
+export function extractAudioTag(text: string): {
   cleanText: string;
-  modifier: EmotionTagModifier | null;
+  textWithTag: string;
 } {
-  const match = text.match(EMOTION_TAG_REGEX);
+  const match = text.match(AUDIO_TAG_REGEX);
   if (!match) {
-    return { cleanText: text, modifier: null };
+    return { cleanText: text, textWithTag: text };
   }
 
   const tagContent = match[1] as string;
-  // Check if the captured tag is a valid emotion tag
-  const modifier = EMOTION_TAGS[tagContent as EmotionTag];
-  if (!modifier) {
-    // Unknown tag — leave text as-is (don't strip it)
-    return { cleanText: text, modifier: null };
+  // Check if the captured tag is a valid v3 audio tag
+  if (!(tagContent in AUDIO_TAGS)) {
+    // Unknown tag — treat as plain text
+    return { cleanText: text, textWithTag: text };
   }
 
-  // Remove the tag from the text
+  // cleanText: tag removed (for prev/next context)
   const cleanText = text.slice(match[0].length);
-  return { cleanText, modifier };
+  // textWithTag: original text preserved (v3 model reads the tag)
+  return { cleanText, textWithTag: text };
 }
 
 /**
- * Apply an emotion tag modifier to base voice_settings.
- * stability and style are adjusted additively, then clamped.
- * speed is overridden (absolute value) if the modifier specifies one,
- * otherwise the base speed is kept.
- *
- * use_speaker_boost and similarity_boost are not affected by emotion tags.
- */
-export function applyEmotionModifier(
-  baseSettings: VoiceSettings,
-  modifier: EmotionTagModifier,
-): VoiceSettings {
-  return {
-    ...baseSettings,
-    stability: clamp(
-      baseSettings.stability + modifier.stability,
-      VOICE_SETTING_MIN,
-      VOICE_SETTING_MAX,
-    ),
-    style: clamp(
-      baseSettings.style + modifier.style,
-      VOICE_SETTING_MIN,
-      VOICE_SETTING_MAX,
-    ),
-    speed: modifier.speed !== null
-      ? clamp(modifier.speed, SPEED_MIN, SPEED_MAX)
-      : baseSettings.speed,
-  };
-}
-
-/**
- * Prepare script text for the ElevenLabs TTS API.
+ * Prepare script text for the ElevenLabs TTS API (clean text without tags).
  * Applies dictionary readings (inline injection) and sanitization.
- * This is the text that goes into the request body's `text` field.
+ * Used for previous_text / next_text context fields.
  */
 export function prepareTextForTts(
   lineText: string,
@@ -187,6 +158,34 @@ export function prepareTextForTts(
     ? applyDictionary(lineText, dictionary)
     : lineText;
   return sanitizeForTts(withReadings);
+}
+
+/**
+ * Prepare script text with audio tag preserved for TTS API text field.
+ * Applies dictionary + sanitization to the text portion while keeping
+ * the [tag] prefix intact for v3 model interpretation.
+ */
+export function prepareTextWithAudioTag(
+  textWithTag: string,
+  cleanText: string,
+  dictionary: DictionaryEntry[],
+): string {
+  // Apply dictionary + sanitize to the clean text portion
+  const processedClean = prepareTextForTts(cleanText, dictionary);
+
+  // If the original text had no tag, just return processed text
+  if (textWithTag === cleanText) {
+    return processedClean;
+  }
+
+  // Extract the tag prefix from the original text
+  const match = textWithTag.match(AUDIO_TAG_REGEX);
+  if (!match) {
+    return processedClean;
+  }
+
+  // Re-attach the tag prefix to the processed clean text
+  return match[0] + processedClean;
 }
 
 // ============================================================

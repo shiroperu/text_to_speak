@@ -1,14 +1,13 @@
 // src/components/ScriptPanel.tsx
-// Script upload area, speaker-to-character mapping, emotion tag reference,
+// Script upload area, speaker-to-character mapping, audio tag reference,
 // and line preview table. Handles .txt file upload and displays parsed script lines.
 //
-// ElevenLabs migration: Added collapsible emotion tag reference panel
-// so users can see available tags and copy them into scripts.
+// ElevenLabs v3 migration: Audio tag reference panel with emotion/performance categories.
 
 import { useState } from "react";
 import type { ChangeEvent } from "react";
-import type { Character, ScriptLine, SpeakerMap, EmotionTag } from "@/types";
-import { CHARACTER_COLORS, EMOTION_TAGS } from "@/config";
+import type { Character, ScriptLine, SpeakerMap, AudioTag } from "@/types";
+import { CHARACTER_COLORS, AUDIO_TAGS } from "@/config";
 import { IconUpload } from "./icons";
 
 interface ScriptPanelProps {
@@ -95,28 +94,55 @@ export function ScriptPanel({
         )}
       </div>
 
-      {/* Emotion tag reference (collapsible) */}
+      {/* Audio tag reference (collapsible) */}
       <div className="px-6 py-2 border-b border-slate-800">
         <button
           onClick={() => setShowTags(!showTags)}
           className="text-[11px] text-slate-500 hover:text-slate-300 bg-transparent border-none cursor-pointer font-sans flex items-center gap-1"
         >
           <span className="text-[10px]">{showTags ? "▼" : "▶"}</span>
-          感情タグ一覧
+          音声タグ一覧（v3）
         </button>
         {showTags && (
-          <div className="mt-2 grid grid-cols-4 gap-1.5">
-            {(Object.entries(EMOTION_TAGS) as [EmotionTag, typeof EMOTION_TAGS[EmotionTag]][]).map(([tag, mod]) => (
-              <button
-                key={tag}
-                onClick={() => copyTag(tag)}
-                className="flex items-center gap-1.5 px-2 py-1.5 bg-slate-800 border border-slate-700 rounded-md text-left cursor-pointer hover:border-amber-500/50 transition-colors group"
-                title={`クリックでコピー: [${tag}] `}
-              >
-                <span className="text-[11px] text-amber-400 font-mono">[{tag}]</span>
-                <span className="text-[10px] text-slate-500 group-hover:text-slate-400">{mod.label}</span>
-              </button>
-            ))}
+          <div className="mt-2 space-y-2">
+            {/* Emotion tags */}
+            <div>
+              <div className="text-[10px] text-slate-600 uppercase tracking-wider mb-1">感情</div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {(Object.entries(AUDIO_TAGS) as [AudioTag, typeof AUDIO_TAGS[AudioTag]][])
+                  .filter(([, info]) => info.category === "emotion")
+                  .map(([tag, info]) => (
+                    <button
+                      key={tag}
+                      onClick={() => copyTag(tag)}
+                      className="flex items-center gap-1.5 px-2 py-1.5 bg-slate-800 border border-slate-700 rounded-md text-left cursor-pointer hover:border-amber-500/50 transition-colors group"
+                      title={`クリックでコピー: [${tag}] `}
+                    >
+                      <span className="text-[11px] text-amber-400 font-mono">[{tag}]</span>
+                      <span className="text-[10px] text-slate-500 group-hover:text-slate-400">{info.label}</span>
+                    </button>
+                  ))}
+              </div>
+            </div>
+            {/* Performance tags */}
+            <div>
+              <div className="text-[10px] text-slate-600 uppercase tracking-wider mb-1">演出</div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(Object.entries(AUDIO_TAGS) as [AudioTag, typeof AUDIO_TAGS[AudioTag]][])
+                  .filter(([, info]) => info.category === "performance")
+                  .map(([tag, info]) => (
+                    <button
+                      key={tag}
+                      onClick={() => copyTag(tag)}
+                      className="flex items-center gap-1.5 px-2 py-1.5 bg-slate-800 border border-slate-700 rounded-md text-left cursor-pointer hover:border-amber-500/50 transition-colors group"
+                      title={`クリックでコピー: [${tag}] `}
+                    >
+                      <span className="text-[11px] text-amber-400 font-mono">[{tag}]</span>
+                      <span className="text-[10px] text-slate-500 group-hover:text-slate-400">{info.label}</span>
+                    </button>
+                  ))}
+              </div>
+            </div>
           </div>
         )}
       </div>

@@ -3,14 +3,13 @@
 // All constants, defaults, and tunables in one place.
 // Rationale: CLAUDE.md requires no magic numbers; config centralizes them.
 //
-// ElevenLabs migration:
+// ElevenLabs v3 migration:
 // - Voice list is now fetched dynamically from API (no hardcoded list)
-// - GEMINI_TTS_MODEL / GEMINI_API_BASE → ELEVENLABS equivalents
-// - Removed PITCH_OPTIONS, AGE_OPTIONS (not controllable via ElevenLabs)
-// - Added EMOTION_TAGS for per-line emotion control
+// - Model: eleven_v3 (upgraded from eleven_multilingual_v2)
+// - AUDIO_TAGS: v3 audio tags replace v2 emotion tags (model interprets tags directly)
 // - PCM constants (SAMPLE_RATE etc.) retained — using pcm_24000 output format
 
-import type { Character, EmotionTag, EmotionTagModifier } from "./types";
+import type { Character, AudioTag, AudioTagInfo } from "./types";
 
 // ============================================================
 // Character parameter options (UI selector choices)
@@ -61,71 +60,45 @@ export const PREVIEW_TEXT = "こんにちは、テスト音声です。本日は
 // ElevenLabs API
 // ============================================================
 
-/** Primary model — high quality, stable, good Japanese support */
-export const ELEVENLABS_MODEL_ID = "eleven_multilingual_v2";
+/** Primary model — ElevenLabs v3 with audio tag support */
+export const ELEVENLABS_MODEL_ID = "eleven_v3";
 /** API base URL (v1 endpoint) */
 export const ELEVENLABS_API_BASE = "https://api.elevenlabs.io/v1";
 /** PCM output format — 24kHz 16-bit signed little-endian mono */
 export const ELEVENLABS_OUTPUT_FORMAT = "pcm_24000";
+/** Maximum text length for v3 model (characters) */
+export const ELEVENLABS_MAX_CHARS = 5000;
 /** User's own voices endpoint (relative to ELEVENLABS_API_BASE) */
 export const ELEVENLABS_VOICES_ENDPOINT = "/voices";
 
 // ============================================================
-// Emotion tag system
+// Audio tag system (ElevenLabs v3)
 // ============================================================
-// Tags can be embedded in script text to dynamically adjust voice_settings.
-// Format: [emotion:angry], [whisper], etc. — placed at the start of a line.
-// See migration plan section 7.7 for full specification.
+// v3 audio tags are embedded in script text as [angry], [whispers], etc.
+// The v3 model interprets these tags directly — no numeric voice_settings adjustment needed.
+// Tags are placed at the start of a line and kept in the TTS text.
 
-export const EMOTION_TAGS: Record<EmotionTag, EmotionTagModifier> = {
-  "emotion:angry": {
-    stability: -0.15,
-    style: +0.20,
-    speed: null,
-    label: "怒り",
-  },
-  "emotion:sad": {
-    stability: -0.10,
-    style: +0.10,
-    speed: 0.9,
-    label: "悲しみ",
-  },
-  "emotion:happy": {
-    stability: -0.05,
-    style: +0.15,
-    speed: null,
-    label: "喜び",
-  },
-  "emotion:excited": {
-    stability: -0.15,
-    style: +0.25,
-    speed: 1.1,
-    label: "興奮",
-  },
-  "emotion:calm": {
-    stability: +0.10,
-    style: -0.05,
-    speed: 0.95,
-    label: "穏やか",
-  },
-  "emotion:fearful": {
-    stability: -0.10,
-    style: +0.10,
-    speed: 1.05,
-    label: "恐怖",
-  },
-  "whisper": {
-    stability: +0.20,
-    style: -0.10,
-    speed: 0.9,
-    label: "ささやき",
-  },
-  "shout": {
-    stability: -0.20,
-    style: +0.30,
-    speed: 1.1,
-    label: "叫び",
-  },
+export const AUDIO_TAGS: Record<AudioTag, AudioTagInfo> = {
+  // --- Emotion tags (12) ---
+  angry:         { label: "怒り",     category: "emotion" },
+  sad:           { label: "悲しみ",   category: "emotion" },
+  happy:         { label: "喜び",     category: "emotion" },
+  excited:       { label: "興奮",     category: "emotion" },
+  calm:          { label: "穏やか",   category: "emotion" },
+  fearful:       { label: "恐怖",     category: "emotion" },
+  nervous:       { label: "不安",     category: "emotion" },
+  frustrated:    { label: "苛立ち",   category: "emotion" },
+  curious:       { label: "好奇心",   category: "emotion" },
+  sarcastic:     { label: "皮肉",     category: "emotion" },
+  mischievously: { label: "いたずら", category: "emotion" },
+  sorrowful:     { label: "哀愁",     category: "emotion" },
+  // --- Performance tags (6) ---
+  whispers:      { label: "ささやき",   category: "performance" },
+  laughs:        { label: "笑い",       category: "performance" },
+  sighs:         { label: "ため息",     category: "performance" },
+  crying:        { label: "泣き",       category: "performance" },
+  gasps:         { label: "息をのむ",   category: "performance" },
+  shout:         { label: "叫び",       category: "performance" },
 };
 
 // ============================================================
