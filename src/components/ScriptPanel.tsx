@@ -2,12 +2,14 @@
 // Script upload area, speaker-to-character mapping, audio tag reference,
 // and line preview table. Handles .txt file upload and displays parsed script lines.
 //
+// Audio tag click inserts/toggles tag on selected script line (or copies to clipboard if none selected).
 // ElevenLabs v3 migration: Audio tag reference panel with emotion/performance categories.
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { ChangeEvent } from "react";
 import type { Character, ScriptLine, SpeakerMap, AudioTag } from "@/types";
 import { CHARACTER_COLORS, AUDIO_TAGS } from "@/config";
+import { AUDIO_TAG_REGEX } from "@/utils/prompt";
 import { IconUpload } from "./icons";
 
 interface ScriptPanelProps {
@@ -17,13 +19,7 @@ interface ScriptPanelProps {
   characters: Character[];
   onFileUpload: (e: ChangeEvent<HTMLInputElement>) => void;
   onSpeakerMapChange: (map: SpeakerMap) => void;
-}
-
-/** Copy text to clipboard and show brief feedback */
-function copyTag(tag: string) {
-  navigator.clipboard.writeText(`[${tag}] `).catch(() => {
-    // Fallback: ignore if clipboard unavailable
-  });
+  onScriptLinesChange: (lines: ScriptLine[]) => void;
 }
 
 export function ScriptPanel({
@@ -33,8 +29,15 @@ export function ScriptPanel({
   characters,
   onFileUpload,
   onSpeakerMapChange,
+  onScriptLinesChange,
 }: ScriptPanelProps) {
   const [showTags, setShowTags] = useState(false);
+  const [selectedLineIdx, setSelectedLineIdx] = useState<number | null>(null);
+
+  // Reset selection when script lines change (file re-upload), but not on tag insertion (content-only change)
+  useEffect(() => {
+    setSelectedLineIdx(null);
+  }, [scriptLines.length]);
 
   /** Update a single speaker's character mapping */
   const updateMapping = (speaker: string, charId: string) => {
@@ -45,6 +48,58 @@ export function ScriptPanel({
   const getSpeakerColor = (speaker: string): string => {
     const charIdx = characters.findIndex((c) => c.id === speakerMap[speaker]);
     return charIdx >= 0 ? CHARACTER_COLORS[charIdx % CHARACTER_COLORS.length]! : "#475569";
+  };
+
+  /** Toggle line selection (click to select, click again to deselect) */
+  const handleLineClick = (idx: number) => {
+    setSelectedLineIdx((prev) => (prev === idx ? null : idx));
+  };
+
+  /**
+   * Handle audio tag click:
+   * - Always copy tag to clipboard (legacy behavior)
+   * - If a script line is selected, insert/toggle/replace the tag on that line
+   */
+  const handleTagClick = (tag: string) => {
+    // 1. Copy to clipboard (always)
+    navigator.clipboard.writeText(`[${tag}] `).catch(() => {});
+
+    // 2. Insert into selected line if any
+    if (selectedLineIdx === null) return;
+    const line = scriptLines[selectedLineIdx];
+    if (!line) return;
+
+    const match = line.text.match(AUDIO_TAG_REGEX);
+    let newText: string;
+
+    if (match && match[1] === tag) {
+      // Same tag already present → remove (toggle off)
+      newText = line.text.slice(match[0].length);
+    } else if (match) {
+      // Different tag present → replace
+      newText = `[${tag}] ${line.text.slice(match[0].length)}`;
+    } else {
+      // No tag → insert at beginning
+      newText = `[${tag}] ${line.text}`;
+    }
+
+    const newLines = [...scriptLines];
+    newLines[selectedLineIdx] = { ...line, text: newText };
+    onScriptLinesChange(newLines);
+  };
+
+  /** Remove audio tag from selected line */
+  const handleRemoveTag = () => {
+    if (selectedLineIdx === null) return;
+    const line = scriptLines[selectedLineIdx];
+    if (!line) return;
+
+    const match = line.text.match(AUDIO_TAG_REGEX);
+    if (!match) return; // No tag to remove
+
+    const newLines = [...scriptLines];
+    newLines[selectedLineIdx] = { ...line, text: line.text.slice(match[0].length) };
+    onScriptLinesChange(newLines);
   };
 
   return (
@@ -102,6 +157,9 @@ export function ScriptPanel({
         >
           <span className="text-[10px]">{showTags ? "▼" : "▶"}</span>
           音声タグ一覧（v3）
+          {selectedLineIdx !== null && (
+            <span className="ml-2 text-amber-500/70">— 行{selectedLineIdx + 1}に挿入</span>
+          )}
         </button>
         {showTags && (
           <div className="mt-2 space-y-2">
@@ -114,9 +172,11 @@ export function ScriptPanel({
                   .map(([tag, info]) => (
                     <button
                       key={tag}
-                      onClick={() => copyTag(tag)}
+                      onClick={() => handleTagClick(tag)}
                       className="flex items-center gap-1.5 px-2 py-1.5 bg-slate-800 border border-slate-700 rounded-md text-left cursor-pointer hover:border-amber-500/50 transition-colors group"
-                      title={`クリックでコピー: [${tag}] `}
+                      title={selectedLineIdx !== null
+                        ? `行${selectedLineIdx + 1}に [${tag}] を挿入`
+                        : `クリックでコピー: [${tag}] `}
                     >
                       <span className="text-[11px] text-amber-400 font-mono">[{tag}]</span>
                       <span className="text-[10px] text-slate-500 group-hover:text-slate-400">{info.label}</span>
@@ -133,9 +193,11 @@ export function ScriptPanel({
                   .map(([tag, info]) => (
                     <button
                       key={tag}
-                      onClick={() => copyTag(tag)}
+                      onClick={() => handleTagClick(tag)}
                       className="flex items-center gap-1.5 px-2 py-1.5 bg-slate-800 border border-slate-700 rounded-md text-left cursor-pointer hover:border-amber-500/50 transition-colors group"
-                      title={`クリックでコピー: [${tag}] `}
+                      title={selectedLineIdx !== null
+                        ? `行${selectedLineIdx + 1}に [${tag}] を挿入`
+                        : `クリックでコピー: [${tag}] `}
                     >
                       <span className="text-[11px] text-amber-400 font-mono">[{tag}]</span>
                       <span className="text-[10px] text-slate-500 group-hover:text-slate-400">{info.label}</span>
@@ -143,6 +205,19 @@ export function ScriptPanel({
                   ))}
               </div>
             </div>
+            {/* Remove tag button */}
+            {selectedLineIdx !== null && (
+              <div className="pt-1">
+                <button
+                  onClick={handleRemoveTag}
+                  className="flex items-center gap-1.5 px-2 py-1.5 bg-red-500/10 border border-red-500/30 rounded-md text-left cursor-pointer hover:border-red-500/50 transition-colors"
+                  title={`行${selectedLineIdx + 1}のタグを削除`}
+                >
+                  <span className="text-[11px] text-red-400 font-mono">✕</span>
+                  <span className="text-[10px] text-red-400">タグ削除</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -159,10 +234,19 @@ export function ScriptPanel({
           <div className="py-3">
             {scriptLines.map((line, idx) => {
               const color = getSpeakerColor(line.speaker);
+              const isSelected = selectedLineIdx === idx;
+              // Detect audio tag at start of text for highlighted display
+              const tagMatch = line.text.match(AUDIO_TAG_REGEX);
+
               return (
                 <div
                   key={idx}
-                  className="flex gap-3 py-2 border-b border-slate-800/50 animate-slide-in"
+                  onClick={() => handleLineClick(idx)}
+                  className={`flex gap-3 py-2 border-b cursor-pointer transition-colors ${
+                    isSelected
+                      ? "border-amber-500/50 bg-amber-500/5"
+                      : "border-slate-800/50 hover:bg-slate-800/30"
+                  } animate-slide-in`}
                   style={{ animationDelay: `${idx * 20}ms` }}
                 >
                   <div className="w-7 text-right text-[11px] text-slate-700 pt-0.5 shrink-0">
@@ -179,7 +263,15 @@ export function ScriptPanel({
                     {line.speaker}
                   </div>
                   <div className="text-[13px] text-slate-300 leading-relaxed flex-1">
-                    {line.text}
+                    {tagMatch ? (
+                      <>
+                        <span className="text-amber-400/80 font-mono text-[12px]">{tagMatch[0].trimEnd()}</span>
+                        {" "}
+                        {line.text.slice(tagMatch[0].length)}
+                      </>
+                    ) : (
+                      line.text
+                    )}
                   </div>
                 </div>
               );

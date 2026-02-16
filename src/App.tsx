@@ -140,6 +140,7 @@ export default function App() {
             characters={characters}
             onFileUpload={handleFileUpload}
             onSpeakerMapChange={setSpeakerMap}
+            onScriptLinesChange={setScriptLines}
           />
           <GenerationControls
             generation={generation}
