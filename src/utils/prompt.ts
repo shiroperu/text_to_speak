@@ -38,11 +38,13 @@ const SPEED_MAP: Record<Speed, number> = {
   fast: 1.15,
 };
 
-/** EmotionIntensity → voice_settings.stability (inverse relationship) */
+/** EmotionIntensity → voice_settings.stability
+ * v3 accepts only 3 values: 0.0 (Creative), 0.5 (Natural), 1.0 (Robust).
+ * All levels set to Creative (0.0) for maximum emotional expressiveness. */
 const EMOTION_STABILITY_MAP: Record<EmotionIntensity, number> = {
-  small: 0.75,
-  medium: 0.50,
-  large: 0.30,
+  small: 0.0,
+  medium: 0.0,
+  large: 0.0,
 };
 
 /** EmotionIntensity → voice_settings.style (base value, before personality bonus) */
@@ -83,7 +85,7 @@ const QUALITY_BOOST_MAP: Record<VoiceQuality, boolean> = {
 // The tag must be followed by a space (or end of string) to avoid false matches.
 // Captures the tag content without brackets.
 
-const AUDIO_TAG_REGEX = /^\[(\w+)\]\s*/;
+export const AUDIO_TAG_REGEX = /^\[(\w+)\]\s*/;
 
 // ============================================================
 // Public API

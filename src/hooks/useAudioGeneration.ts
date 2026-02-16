@@ -47,12 +47,14 @@ function isValidVoiceId(id: string): boolean {
  * @param voiceId - ElevenLabs voice ID (used in URL path, validated for safe characters)
  * @param text - Text to synthesize (may contain v3 audio tags like [angry])
  * @param voiceSettings - Computed voice_settings from character UI params
+ * @param signal - AbortSignal for cancellation support
  */
 async function callTtsApi(
   apiKey: string,
   voiceId: string,
   text: string,
   voiceSettings: VoiceSettings,
+  signal: AbortSignal,
 ): Promise<Int16Array | null> {
   // Validate voiceId before inserting into URL path
   if (!isValidVoiceId(voiceId)) {
@@ -73,6 +75,9 @@ async function callTtsApi(
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
+    // Check abort before each attempt
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+
     const res = await fetch(url, {
       method: "POST",
       headers: {
@@ -80,6 +85,7 @@ async function callTtsApi(
         "xi-api-key": apiKey,
       },
       body: JSON.stringify(body),
+      signal,
     });
 
     // --- 429 Rate Limit: wait and retry with retry count limit ---
@@ -90,7 +96,7 @@ async function callTtsApi(
       }
       const retryAfter = res.headers.get("retry-after");
       const waitSec = retryAfter ? parseInt(retryAfter, 10) : RATE_LIMIT_DEFAULT_WAIT_SEC;
-      await new Promise((r) => setTimeout(r, waitSec * 1000));
+      await abortableDelay(waitSec * 1000, signal);
       continue;
     }
 
@@ -119,8 +125,17 @@ async function callTtsApi(
     if (errorRetries >= MAX_RETRIES) {
       throw new Error(`API エラー: ${errorMessage}`);
     }
-    await new Promise((r) => setTimeout(r, Math.pow(2, errorRetries) * 2000));
+    await abortableDelay(Math.pow(2, errorRetries) * 2000, signal);
   }
+}
+
+/** Delay that rejects immediately when the AbortSignal fires */
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(new DOMException("Aborted", "AbortError")); return; }
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); }, { once: true });
+  });
 }
 
 /**
@@ -142,12 +157,12 @@ export function useAudioGeneration(
   const [requestDelay, setRequestDelay] = useState(DEFAULT_REQUEST_DELAY_SEC);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const abortRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
   // Track previous audioUrl in ref to avoid dependency in useCallback (#6 review fix)
   const audioUrlRef = useRef<string | null>(null);
 
   const stopGeneration = useCallback(() => {
-    abortRef.current = true;
+    abortControllerRef.current?.abort();
   }, []);
 
   const generateAudio = useCallback(async () => {
@@ -162,7 +177,9 @@ export function useAudioGeneration(
 
     setIsGenerating(true);
     setGenError(null);
-    abortRef.current = false;
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    const { signal } = abortController;
 
     // Build speaker → character lookup
     const charLookup: Record<string, Character> = {};
@@ -177,7 +194,7 @@ export function useAudioGeneration(
     try {
       // Process lines in script order
       for (let i = 0; i < scriptLines.length; i++) {
-        if (abortRef.current) break;
+        if (signal.aborted) break;
 
         const line = scriptLines[i]!;
         const char = charLookup[line.speaker]!;
@@ -201,21 +218,23 @@ export function useAudioGeneration(
         }
 
         try {
-          const pcm = await callTtsApi(apiKey, char.voiceId, ttsText, voiceSettings);
+          const pcm = await callTtsApi(apiKey, char.voiceId, ttsText, voiceSettings, signal);
           pcmChunks.push(pcm);
         } catch (err) {
+          // AbortError means user cancelled — stop immediately
+          if ((err as Error).name === "AbortError") break;
           setGenError(`行${line.index + 1}でエラー: ${(err as Error).message}`);
           pcmChunks.push(null);
         }
 
         // Rate limit delay (skip after last line)
-        if (i < scriptLines.length - 1 && !abortRef.current) {
-          await new Promise((r) => setTimeout(r, requestDelay * 1000));
+        if (i < scriptLines.length - 1 && !signal.aborted) {
+          await abortableDelay(requestDelay * 1000, signal).catch(() => {/* aborted */});
         }
       }
 
       // Combine all PCM chunks with silence gaps
-      if (!abortRef.current) {
+      if (!signal.aborted) {
         const validChunks = pcmChunks.filter((c): c is Int16Array => c !== null);
         if (validChunks.length > 0) {
           const allParts: Int16Array[] = [];
